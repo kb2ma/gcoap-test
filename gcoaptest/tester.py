@@ -15,8 +15,10 @@ from   __future__ import print_function
 import logging
 import asyncore
 import sys
+import time
 from   soscoap  import MessageType
 from   soscoap  import RequestCode
+import soscoap
 from   soscoap.resource import SosResourceTransfer
 from   soscoap.msgsock  import MessageSocket
 from   soscoap.server   import CoapServer
@@ -32,6 +34,7 @@ class GcoapTester(object):
     
     Attributes:
         :_server:   CoapServer Provides CoAP message protocol
+        :_delay:    Time in seconds to delay a response; useful for testing
     
     Usage:
         #. cr = GcoapTester()  -- Create instance
@@ -40,13 +43,19 @@ class GcoapTester(object):
         
     URIs:
         | /ver -- GET program version
-        | /toobig -- CoAP PDU exceeds 128-byte buffer used by gcoap
+        | /toobig -- GET large text payload. CoAP PDU exceeds 128-byte buffer
+                     used by gcoap.
+        | Configuration
+        | /cf/delay -- POST integer seconds to delay future responses
     '''
-    def __init__(self):
-        self._server = CoapServer()
+    def __init__(self, port=soscoap.COAP_PORT):
+        '''Pass in port for non-standard CoAP port.
+        '''
+        self._server = CoapServer(port=port)
         self._server.registerForResourceGet(self._getResource)
         self._server.registerForResourcePut(self._putResource)
         self._server.registerForResourcePost(self._postResource)
+        self._delay = 0
         
     def close(self):
         '''Releases system resources.
@@ -67,27 +76,26 @@ class GcoapTester(object):
             log.debug('Got resource value')
         else:
             log.debug('Unknown path')
+
+        time.sleep(self._delay)
     
     def _postResource(self, resource):
-        '''Records the value for the provided resource, for a POST request.
-        
-        :param resource.value: str ASCII in CSV format, with two fields:
-                               1. int Time
-                               2. int Value
+        '''Accepts the value for the provided resource, for a POST request.
         '''
         log.debug('Resource path is {0}'.format(resource.path))
-        raise NotImplementedError('Unknown path')
+        if resource.path == '/cf/delay':
+            self._delay = int(resource.value)
+            log.debug('Post delay value: {0}'.format(self._delay))
+        else:
+            log.debug('Unknown path')
+            time.sleep(self._delay)
     
     def _putResource(self, resource):
-        '''Records the value for the provided resource, for a PUT request.
-        
-        :param resource.value: str ASCII in CSV format, with two fields:
-                               1. int Time
-                               2. int Value
+        '''Accepts the value for the provided resource, for a PUT request.
         '''
         log.debug('Resource path is {0}'.format(resource.path))
         raise NotImplementedError('Unknown path')
-    
+
     def start(self):
         '''Creates the server, and opens the file for this recorder.
         
@@ -97,12 +105,23 @@ class GcoapTester(object):
 
 # Start the tester
 if __name__ == '__main__':
+    from optparse import OptionParser
+
     formattedPath = '\n\t'.join(str(p) for p in sys.path)
     log.info('Running gcoap tester with sys.path:\n\t{0}'.format(formattedPath))
+
+    # read command line
+    parser = OptionParser()
+    parser.add_option('-p', type='int', dest='port', default=soscoap.COAP_PORT)
+
+    (options, args) = parser.parse_args()
+    log.info('Using port {0}'.format(options.port))
+
     tester = None
     try:
-        tester = GcoapTester()
+        tester = GcoapTester(options.port)
         print('Sock it to me!')
+
         if tester:
             tester.start()
     except KeyboardInterrupt:
