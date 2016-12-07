@@ -1,19 +1,27 @@
 #!/usr/bin/env python
 
-'''Uses libcoap example client to query gcoap server. Assumes gcoap server exists.
+'''Uses libcoap example client to query gcoap server. Assumes gcoap server
+exists.
+
+Options:
+
+-a <addr>  -- Address of server
+-r <count> -- Number of times to repeat query, with a 3 second wait between
+              response and next request.
 
 Example:
 
-./libcoap-client.py -a <address>
+# Uses address for fixed tap address created by riot2gcoaptest.py
+$ ./libcoap2riot.py -a fe80::aaaa:2 -r 30
 '''
 from __future__ import print_function
 import time
 import pexpect
 
 def main(addr, repeatCount):
-    dir  = '/home/kbee/dev/libcoap/repo/examples'
+    dir = '/home/kbee/dev/libcoap/repo/examples'
 
-    print('Get /cli/stats')
+    print('Test: libcoap client GET /cli/stats from RIOT gcoap server')
     for x in range(repeatCount):
         time.sleep(3)
         child = pexpect.spawn('{0}/coap-client -N -m get -U -T 5a coap://[{1}%tap0]/cli/stats'.format(dir, addr))

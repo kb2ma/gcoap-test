@@ -1,8 +1,11 @@
 #!/bin/sh
 # Runs the gcoap tester application, optionally using the provided Python
-# version and IP port. Python version defaults to 3.
+# version and IP port. Python version defaults to 3. Tester listens on all
+# network interfaces.
 #
-# ./runtester [-v 2] [-p port]
+# Need to set PYTHONPATH in a development environment.
+#
+# PYTHONPATH="../../soscoap/repo:../repo" ./runtester [-v 2] [-p port]
 
 python_exe="python3"
 if [ -n $2 ] && [ "$1" = "-v" ] && [ "$2" = "2" ]; then

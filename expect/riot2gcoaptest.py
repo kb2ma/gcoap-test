@@ -1,7 +1,7 @@
 #!/usr/bin/env python
 
 '''Creates RIOT example app, and uses it to GET /ver resource from gcoaptest
-server.
+server. Also creates fixed IP address for use of example app as server.
 
 Before running, may need to manually create TAP interface and fixed IP address
 for gcoaptest server. See example below.
@@ -31,6 +31,11 @@ def main(addr, serverDelay, repeatCount):
     print('Test: RIOT client GET /ver from gcoaptest server')
     child = pexpect.spawn('make term')
     child.expect('gcoap example app')
+
+    ifType = 'tap' if addr[:4] == 'fe80' else 'tun'
+    if ifType == 'tap':
+        child.sendline('ifconfig 6 add unicast fe80::aaaa:2/64')
+        child.expect('success:')
     
     child.sendline('coap post {0} 5683 /cf/delay {1}'.format(addr, serverDelay))
     child.expect('code 2\.04')
