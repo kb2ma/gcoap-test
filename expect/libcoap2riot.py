@@ -12,21 +12,27 @@ Options:
 Example:
 
 # Uses address for fixed tap address created by riot2gcoaptest.py
-$ ./libcoap2riot.py -a fe80::aaaa:2 -r 30
+$ PATH=${PATH}:/home/kbee/dev/libcoap/repo/examples \
+  ./libcoap2riot.py -a fe80::bbbb:2 -r 30
 '''
 from __future__ import print_function
 import time
+import re
 import pexpect
 
 def main(addr, repeatCount):
-    dir = '/home/kbee/dev/libcoap/repo/examples'
-
     print('Test: libcoap client GET /cli/stats from RIOT gcoap server')
+    addrSuffix = '%tap0' if addr[:4] == 'fe80' else ''
+    
     for x in range(repeatCount):
         time.sleep(3)
-        child = pexpect.spawn('{0}/coap-client -N -m get -U -T 5a coap://[{1}%tap0]/cli/stats'.format(dir, addr))
-        child.expect('.*\n')
-        print('Success: {0}'.format(child.after))
+        cmdText = 'coap-client -N -m get -U -T 5a coap://[{0}{1}]/cli/stats'
+        child   = pexpect.spawn(cmdText.format(addr, addrSuffix))
+        pattern = '(v.*\n)(\d+\r\n)'
+        child.expect(pattern)
+        # Rerun regex to extract and print second group, the response payload.
+        match = re.search(pattern, child.after)
+        print('Success: {0}'.format(match.group(2)))
 
 if __name__ == "__main__":
     from optparse import OptionParser
