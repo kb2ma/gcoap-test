@@ -12,8 +12,7 @@ Options:
 Example:
 
 # Uses address for fixed tap address created by riot2gcoaptest.py
-$ PATH=${PATH}:/home/kbee/dev/libcoap/repo/examples \
-  ./libcoap2riot.py -a fe80::bbbb:2 -r 30
+$ PATH=${PATH}:/home/kbee/dev/libcoap/repo/examples ./libcoap2riot.py -a fe80::bbbb:2 -r 30
 '''
 from __future__ import print_function
 import time
