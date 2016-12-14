@@ -12,7 +12,10 @@ Options:
 -a <addr>  -- Address of server
 -d <secs>  -- Server built-in response delay, in seconds
 -r <count> -- Number of times to repeat query, with a 1 second wait between
-              response and next request.
+              response and next request. For 'repeat-get' test only.
+-t <test> --- Name of test to run. Options:
+                repeat-get -- Repeats a sinple GET request
+                toobig -- Requests a response that is too long to process
 -x <dir>   -- Directory in which to execute the script; must be location of
               RIOT gcoap example app.
 
@@ -22,16 +25,22 @@ $ sudo ip tuntap add tap0 mode tap user kbee
 $ sudo ip link set tap0 up
 $ sudo ip address add fe80::bbbb:1/64 dev tap0
 
-$ ./riot2gcoaptest.py -a fe80::bbbb:1 -d 1 -r 50 -x /home/kbee/dev/riot/repo/examples/gcoap
+$ ./riot2gcoaptest.py -a fe80::bbbb:1 -t repeat-get -d 1 -r 50 -x /home/kbee/dev/riot/repo/examples/gcoap
+
+Implementation Notes:
+
+All Pexpect subprocesses are closed explicitly. Otherwise, we have seen the RIOT
+terminal persist.
 '''
 from __future__ import print_function
 import time
 import os
 import pexpect
 
-def main(addr, serverDelay, repeatCount):
-
-    print('Test: RIOT client GET /ver from gcoaptest server')
+def main(addr, testName, serverDelay, repeatCount):
+    '''Common setup for all tests
+    '''
+    print('Setup RIOT client')
     child = pexpect.spawn('make term')
     child.expect('gcoap example app')
 
@@ -39,7 +48,18 @@ def main(addr, serverDelay, repeatCount):
     if ifType == 'tap':
         child.sendline('ifconfig 6 add unicast fe80::bbbb:2/64')
         child.expect('success:')
-    
+
+    if testName == 'repeat-get':
+        runRepeatGet(child, addr, serverDelay, repeatCount)
+    elif testName == 'toobig':
+        runToobig(child, addr)
+    else:
+        print('Unexpected test name: {0}'.format(testName))
+
+def runRepeatGet(child, addr, serverDelay, repeatCount):
+    '''Repeats a simple GET request
+    '''
+    print('Test: Repeat GET /ver')
     child.sendline('coap post {0} 5683 /cf/delay {1}'.format(addr, serverDelay))
     child.expect('code 2\.04')
     print('Server delay set to {0}\n'.format(serverDelay))
@@ -59,6 +79,15 @@ def main(addr, serverDelay, repeatCount):
     child.sendline('coap info')
     child.expect('open requests.*\n')
     print(child.after)
+    child.close()
+
+def runToobig(child, addr):
+    print('Test: GET /toobig')
+
+    child.sendline('coap get {0} 5683 /toobig'.format(addr))
+    child.expect(pexpect.TIMEOUT, timeout=5)
+    print('Success: <timeout>'.format(child.after))
+    child.close()
 
 if __name__ == "__main__":
     from optparse import OptionParser
@@ -67,8 +96,9 @@ if __name__ == "__main__":
     parser = OptionParser()
     parser.add_option('-a', type='string', dest='addr')
     parser.add_option('-d', type='int', dest='serverDelay', default=0)
-    parser.add_option('-x', type='string', dest='execDir', default='')
     parser.add_option('-r', type='int', dest='repeatCount', default=1)
+    parser.add_option('-t', type='string', dest='testName')
+    parser.add_option('-x', type='string', dest='execDir', default='')
 
     (options, args) = parser.parse_args()
 
@@ -77,7 +107,7 @@ if __name__ == "__main__":
         curdir = os.getcwd()
         os.chdir(options.execDir)
     try:
-        main(options.addr, options.serverDelay, options.repeatCount)
+        main(options.addr, options.testName, options.serverDelay, options.repeatCount)
     finally:
         if options.execDir:
             os.chdir(curdir) 
