@@ -29,10 +29,11 @@ $ sudo ip address add fe80::bbbb:1/64 dev tap0
 $ ./riot2gcoaptest.py -a fe80::bbbb:1 -t repeat-get -d 1 -r 50 -x /home/kbee/dev/riot/repo/examples/gcoap
 
 # tun
+# reset samr21 board, then:
 $ cd /home/kbee/dev/riot/repo/dist/tools/tunslip
 $ sudo ./tunslip6 -s ttyUSB0 -t tun0 bbbb::1/64
+# new terminal
 $ sudo ip -6 route add aaaa::/64 dev tun0
-
 $ ./riot2gcoaptest.py -a bbbb::1 -t repeat-get -d 1 -r 50 -x /home/kbee/dev/riot/repo/examples/gcoap
 
 Implementation Notes:
