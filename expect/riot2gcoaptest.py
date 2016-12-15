@@ -21,11 +21,19 @@ Options:
 
 Example:
 
+# tap
 $ sudo ip tuntap add tap0 mode tap user kbee
 $ sudo ip link set tap0 up
 $ sudo ip address add fe80::bbbb:1/64 dev tap0
 
 $ ./riot2gcoaptest.py -a fe80::bbbb:1 -t repeat-get -d 1 -r 50 -x /home/kbee/dev/riot/repo/examples/gcoap
+
+# tun
+$ cd /home/kbee/dev/riot/repo/dist/tools/tunslip
+$ sudo ./tunslip6 -s ttyUSB0 -t tun0 bbbb::1/64
+$ sudo ip -6 route add aaaa::/64 dev tun0
+
+$ ./riot2gcoaptest.py -a bbbb::1 -t repeat-get -d 1 -r 50 -x /home/kbee/dev/riot/repo/examples/gcoap
 
 Implementation Notes:
 
@@ -41,12 +49,24 @@ def main(addr, testName, serverDelay, repeatCount):
     '''Common setup for all tests
     '''
     print('Setup RIOT client')
-    child = pexpect.spawn('make term')
-    child.expect('gcoap example app')
-
     ifType = 'tap' if addr[:4] == 'fe80' else 'tun'
+
+    if ifType == 'tap':
+        child = pexpect.spawn('make term')
+        child.expect('gcoap example app')
+    else:
+        child = pexpect.spawn('make term BOARD="samr21-xpro"')
+        child.expect('Welcome to pyterm!')
+
+    # configure network interfaces
     if ifType == 'tap':
         child.sendline('ifconfig 6 add unicast fe80::bbbb:2/64')
+        child.expect('success:')
+    else:
+        time.sleep(1)
+        child.sendline('ifconfig 8 add unicast bbbb::2/64')
+        child.expect('success:')
+        child.sendline('ncache add 8 bbbb::1')
         child.expect('success:')
 
     if testName == 'repeat-get':
@@ -60,6 +80,7 @@ def runRepeatGet(child, addr, serverDelay, repeatCount):
     '''Repeats a simple GET request
     '''
     print('Test: Repeat GET /ver')
+    time.sleep(1)
     child.sendline('coap post {0} 5683 /cf/delay {1}'.format(addr, serverDelay))
     child.expect('code 2\.04')
     print('Server delay set to {0}\n'.format(serverDelay))
