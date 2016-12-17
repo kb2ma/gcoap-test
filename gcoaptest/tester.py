@@ -21,7 +21,7 @@ from   soscoap  import RequestCode
 import soscoap
 from   soscoap.resource import SosResourceTransfer
 from   soscoap.msgsock  import MessageSocket
-from   soscoap.server   import CoapServer
+from   soscoap.server   import CoapServer, IgnoreRequestException
 
 logging.basicConfig(filename='tester.log', level=logging.DEBUG, 
                     format='%(asctime)s %(module)s %(message)s')
@@ -45,6 +45,7 @@ class GcoapTester(object):
         | /ver -- GET program version
         | /toobig -- GET large text payload. CoAP PDU exceeds 128-byte buffer
                      used by gcoap.
+        | /ignore -- GET that does not respond.
         | Configuration
         | /cf/delay -- POST integer seconds to delay future responses
     '''
@@ -74,8 +75,14 @@ class GcoapTester(object):
             resource.type  = 'string'
             resource.value = '1234567890' * 13
             log.debug('Got resource value')
+        elif resource.path == '/ignore':
+            time.sleep(self._delay)
+            raise IgnoreRequestException
+            return
         else:
-            log.debug('Unknown path')
+            time.sleep(self._delay)
+            raise NotImplementedError('Unknown path')
+            return
 
         time.sleep(self._delay)
     
@@ -87,8 +94,8 @@ class GcoapTester(object):
             self._delay = int(resource.value)
             log.debug('Post delay value: {0}'.format(self._delay))
         else:
-            log.debug('Unknown path')
             time.sleep(self._delay)
+            raise NotImplementedError('Unknown path')
     
     def _putResource(self, resource):
         '''Accepts the value for the provided resource, for a PUT request.

@@ -16,6 +16,8 @@ Options:
 -t <test> --- Name of test to run. Options:
                 repeat-get -- Repeats a sinple GET request
                 toobig -- Requests a response that is too long to process
+                toomany -- Makes a request when the limit of open requests has
+                           been reached
 -x <dir>   -- Directory in which to execute the script; must be location of
               RIOT gcoap example app.
 
@@ -49,10 +51,10 @@ import pexpect
 def main(addr, testName, serverDelay, repeatCount):
     '''Common setup for all tests
     '''
-    print('Setup RIOT client')
-    ifType = 'tap' if addr[:4] == 'fe80' else 'tun'
+    xfaceType = 'tap' if addr[:4] == 'fe80' else 'tun'
+    print('Setup RIOT client for {0} interface'.format(xfaceType))
 
-    if ifType == 'tap':
+    if xfaceType == 'tap':
         child = pexpect.spawn('make term')
         child.expect('gcoap example app')
     else:
@@ -60,7 +62,7 @@ def main(addr, testName, serverDelay, repeatCount):
         child.expect('Welcome to pyterm!')
 
     # configure network interfaces
-    if ifType == 'tap':
+    if xfaceType == 'tap':
         child.sendline('ifconfig 6 add unicast fe80::bbbb:2/64')
         child.expect('success:')
     else:
@@ -74,6 +76,8 @@ def main(addr, testName, serverDelay, repeatCount):
         runRepeatGet(child, addr, serverDelay, repeatCount)
     elif testName == 'toobig':
         runToobig(child, addr)
+    elif testName == 'toomany':
+        runToomany(child, addr)
     else:
         print('Unexpected test name: {0}'.format(testName))
 
@@ -109,6 +113,22 @@ def runToobig(child, addr):
     child.sendline('coap get {0} 5683 /toobig'.format(addr))
     child.expect(pexpect.TIMEOUT, timeout=5)
     print('Success: <timeout>'.format(child.after))
+    child.close()
+
+def runToomany(child, addr):
+    print('Test: Too many open requests to send another')
+
+    child.sendline('coap get {0} 5683 /ignore'.format(addr))
+    child.expect('sending msg')
+    print('Sent 1')
+
+    child.sendline('coap get {0} 5683 /ignore'.format(addr))
+    child.expect('sending msg')
+    print('Sent 2')
+
+    child.sendline('coap get {0} 5683 /ignore'.format(addr))
+    child.expect('send failed')
+    print('Sent 3; failed as expected')
     child.close()
 
 if __name__ == "__main__":
