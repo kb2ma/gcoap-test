@@ -1,4 +1,9 @@
 #!/usr/bin/env python
+# Copyright (c) 2016, Ken Bannister
+# All rights reserved. 
+#  
+# Released under the Mozilla Public License 2.0, as published at the link below.
+# http://opensource.org/licenses/MPL-2.0
 
 '''Uses libcoap example client to query gcoap server. Assumes gcoap server
 exists.
@@ -39,7 +44,7 @@ def runRepeatGet(addr, repeatCount):
     '''
     print('Test: libcoap client GET /cli/stats from RIOT gcoap server')
     addrSuffix = '%tap0' if addr[:4] == 'fe80' else ''
-    
+
     for x in range(repeatCount):
         time.sleep(3)
         cmdText = 'coap-client -N -m get -U -T 5a coap://[{0}{1}]/cli/stats'
@@ -68,7 +73,7 @@ def runBogus(addr):
     '''
     print('Test: libcoap client GET bogus path from RIOT gcoap server')
     addrSuffix = '%tap0' if addr[:4] == 'fe80' else ''
-    
+
     cmdText = 'coap-client -N -m get -U -T 5a coap://[{0}{1}]/bogus'
     child   = pexpect.spawn(cmdText.format(addr, addrSuffix))
     child.expect('4\.04\r\n')

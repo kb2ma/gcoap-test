@@ -1,4 +1,9 @@
 #!/usr/bin/env python
+# Copyright (c) 2016, Ken Bannister
+# All rights reserved. 
+#  
+# Released under the Mozilla Public License 2.0, as published at the link below.
+# http://opensource.org/licenses/MPL-2.0
 
 '''Creates RIOT example app, and uses it to GET /ver resource from gcoaptest
 server. Also creates fixed IP address (fe80::bbbb:2/64) for use of example app
