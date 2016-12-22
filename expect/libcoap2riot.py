@@ -9,8 +9,9 @@ Options:
 -r <count> -- Number of times to repeat query, with a 3 second wait between
               response and next request.
 -t <test> --- Name of test to run. Options:
+                nopath -- GET request for /bogus (returns 4.04)
                 repeat-get -- GET request for /cli/stats
-                toobig -- POSTS to a bogus resource (/abcd)
+                toobig -- POSTs to a bogus resource (/abcd)
 
 Example:
 
@@ -28,6 +29,8 @@ def main(addr, testName, repeatCount):
         runRepeatGet(addr, repeatCount)
     elif testName == 'toobig':
         runToobig(addr)
+    elif testName == 'nopath':
+        runBogus(addr)
     else:
         print('Unexpected test name: {0}'.format(testName))
 
@@ -59,7 +62,19 @@ def runToobig(addr):
     child.expect(pexpect.TIMEOUT, timeout=5)
     print('Success: <timeout>'.format(child.after))
     child.close()
+
+def runBogus(addr):
+    '''GETs a request that gcoap does not understand.
+    '''
+    print('Test: libcoap client GET bogus path from RIOT gcoap server')
+    addrSuffix = '%tap0' if addr[:4] == 'fe80' else ''
     
+    cmdText = 'coap-client -N -m get -U -T 5a coap://[{0}{1}]/bogus'
+    child   = pexpect.spawn(cmdText.format(addr, addrSuffix))
+    child.expect('4\.04\r\n')
+    print('Success: {0}'.format(child.after))
+    child.close()
+
 if __name__ == "__main__":
     from optparse import OptionParser
 
