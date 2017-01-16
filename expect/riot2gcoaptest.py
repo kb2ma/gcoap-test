@@ -5,12 +5,12 @@
 # Released under the Mozilla Public License 2.0, as published at the link below.
 # http://opensource.org/licenses/MPL-2.0
 
-'''Creates RIOT example app, and uses it to GET /ver resource from gcoaptest
-server. Also creates fixed IP address (fe80::bbbb:2/64) for use of example app
-as server.
+'''Creates RIOT example app, and uses it to send GET requests for resources
+from a gcoaptest server. Internally creates a required fixed IP address to
+communicate with the server.
 
-Before running, may need to manually create TAP interface and fixed IP address
-for gcoaptest server. See example below.
+Before running, may need to manually create network interface and fixed IP address
+for gcoaptest server, as well as start the server itself. See examples below.
 
 Options:
 
@@ -28,19 +28,27 @@ Options:
 
 Example:
 
-# tap
+# tap example
+# Set up networking
 $ sudo ip tuntap add tap0 mode tap user kbee
 $ sudo ip link set tap0 up
 $ sudo ip address add fe80::bbbb:1/64 dev tap0
 
+# Start gcoaptest server. See gcoaptest/runtester script.
+
+# Run test
 $ ./riot2gcoaptest.py -a fe80::bbbb:1 -t repeat-get -d 1 -r 50 -x /home/kbee/dev/riot/repo/examples/gcoap
 
-# tun
-# reset samr21 board, then:
+# tun example
+# Reset samr21 board, then set up networking
 $ cd /home/kbee/dev/riot/repo/dist/tools/tunslip
 $ sudo ./tunslip6 -s ttyUSB0 -t tun0 bbbb::1/64
 # new terminal
 $ sudo ip -6 route add aaaa::/64 dev tun0
+
+# Start gcoaptest server. See gcoaptest/runtester script.
+
+# Run test
 $ ./riot2gcoaptest.py -a bbbb::1 -t repeat-get -d 1 -r 50 -x /home/kbee/dev/riot/repo/examples/gcoap
 
 Implementation Notes:
