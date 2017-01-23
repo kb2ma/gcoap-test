@@ -35,6 +35,7 @@ $ sudo ip link set tap0 up
 $ sudo ip address add fe80::bbbb:1/64 dev tap0
 
 # Start gcoaptest server. See gcoaptest/runtester script.
+# Ensure gcoap_cli binary build is up to date.
 
 # Run test
 $ ./riot2gcoaptest.py -a fe80::bbbb:1 -t repeat-get -d 1 -r 50 -x /home/kbee/dev/riot/repo/examples/gcoap

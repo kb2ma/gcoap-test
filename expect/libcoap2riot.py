@@ -20,7 +20,7 @@ Options:
 
 Example:
 
-# Assumes gcoap server exists.
+# Assumes gcoap server exists, and interface initialized with fixed address.
 # Uses address for fixed tap address created by riot2gcoaptest.py
 $ PATH=${PATH}:/home/kbee/dev/libcoap/repo/examples ./libcoap2riot.py -a fe80::bbbb:2 -t repeat-get -r 30
 '''
