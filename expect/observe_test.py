@@ -1,5 +1,5 @@
 #!/usr/bin/env python
-# Copyright (c) 2016, Ken Bannister
+# Copyright (c) 2017, Ken Bannister
 # All rights reserved. 
 #  
 # Released under the Mozilla Public License 2.0, as published at the link below.
@@ -11,12 +11,16 @@ soscoap stats_reader as the client.
 Options:
 
 -a <addr>  -- Address of server
--x <dir>   -- Directory in which to execute the server script; must be location
-              of the RIOT gcoap example app.
--y <dir>   -- Directory in which to execute the client script; must be location
-              of the stats reader Python app.
+-t <test> --- Name of test to run. Options:
+                observe -- Register and listen for notifications for /cli/stats
+                toomanymemos -- Try to register for too many resources
+                toomanyobs -- Try to register too many observers
+-x <dir>   -- Directory in which to execute the server script; must be the
+              location of the RIOT gcoap example app.
+-y <dir>   -- Directory in which to execute the client script; must be the
+              location of the gcoap observer Python app.
 -z <dir>   -- Directory in which to execute the remote client and server scripts;
-              must be location of the libcoap example apps.
+              must be the location of the libcoap example apps.
 
 Example:
 
@@ -27,7 +31,7 @@ $ sudo ip link set tap0 up
 $ sudo ip address add fe80::bbbb:1/64 dev tap0
 
 # Run test
-$ ./observe_test.py -a fe80::bbbb:1 -x /home/kbee/dev/riot/repo/examples/gcoap -y /home/kbee/dev/soscoap/repo/examples/client -z /home/kbee/dev/libcoap/repo/examples
+$ ./observe_test.py -a fe80::bbbb:1 -t observe -x /home/kbee/dev/riot/repo/examples/gcoap -y /home/kbee/dev/gcoap-test/repo -z /home/kbee/dev/libcoap/repo/examples
 
 '''
 from __future__ import print_function
@@ -37,19 +41,20 @@ import pexpect
 import re
 #from   stats_reader import StatsReader
 
-def main(addr, serverDir, clientDir, remoteDir):
+def main(addr, testName, serverDir, clientDir, remoteDir):
     '''Common setup for all tests
 
     server -- RIOT gcoap example server
 
     :param addr: string Server address
+    :param testName: string Name of test to run
     :param serverDir: string Directory in which to run server, or None if pwd
     :param clientDir: string Directory in which to run client, or None if pwd
     :param remoteDir: string Directory in which to run remote client and server,
                              or None if pwd
     '''
     xfaceType = 'tap' if addr[:4] == 'fe80' else 'tun'
-    print('Setup RIOT server for {0} interface'.format(xfaceType))
+    print('Setup Observe test for {0} interface'.format(xfaceType))
 
     if xfaceType == 'tap':
         server = pexpect.spawn('make term', cwd=serverDir)
@@ -68,78 +73,106 @@ def main(addr, serverDir, clientDir, remoteDir):
         server.expect('success:')
         server.sendline('ncache add 8 bbbb::1')
         server.expect('success:')
-    print('Server setup OK')
+    time.sleep(2)
+    print('gcoap Server setup OK')
 
-    print('Setup stats reader client')
-    client = pexpect.spawn('python stats_reader.py -s 5682 -a fe80::bbbb:2%tap0 -q stats', cwd=clientDir, env={'PYTHONPATH': '../..'})
-    client.expect('Starting stats reader')
+    client = pexpect.spawn('python -m gcoaptest.observer -s 5684 -a fe80::bbbb:2%tap0', cwd=clientDir, env={'PYTHONPATH': '../../soscoap/repo'})
+    client.expect('Starting gcoap observer')
+    time.sleep(1)
     print('Client setup OK')
 
-    print('Setup libcoap remote server')
     remoteServer = pexpect.spawn(remoteDir + '/coap-server')
     # No output when start remote server
     remoteServer.expect(pexpect.TIMEOUT, timeout=2)
-    print('Remote server started')
+    print('Remote server setup OK')
+    print('Pause 20 seconds to seed Observe value\n')
+    time.sleep(20)
 
     try:
-        registerObserve(remoteDir, client)
-        triggerNotification(server, client)
-        time.sleep(2)
-        triggerNotification(server, client)
-        deregisterObserve(remoteDir, client)
-        time.sleep(2)
-        verifyNoNotification(server, client)
+        client2 = None
+        if testName == 'observe':
+            registerObserve(remoteDir, client, 'stats')
+            triggerNotification(server, client, 'stats')
+            time.sleep(2)
+            triggerNotification(server, client, 'stats')
+            deregisterObserve(remoteDir, client, 'stats')
+            time.sleep(2)
+            verifyNoNotification(server, client, 'stats')
+
+        elif testName == 'toomanymemos':
+            registerObserve(remoteDir, client, 'stats')
+            registerObserve(remoteDir, client, 'core', expectsRejection=True)
+
+        elif testName == 'toomanyobs':
+            registerObserve(remoteDir, client, 'stats')
+
+            client2 = pexpect.spawn('python -m gcoaptest.observer -s 5686 -a fe80::bbbb:2%tap0', cwd=clientDir, env={'PYTHONPATH': '../../soscoap/repo'})
+            client2.expect('Starting gcoap observer')
+            time.sleep(1)
+            print('Client 2 setup OK')
+
+            registerObserve(remoteDir, client2, 'stats', remotePort=5687, expectsRejection=True)
     finally:
         server.close()
-        print('Server close OK')
         client.close()
-        print('Client close OK')
+        if client2:
+            client2.close()
         remoteServer.close()
-        print('Remote server close OK')
+        print('\nServer, client, remote server close OK')
 
-def registerObserve(remoteDir, client):
-    print('Register for /cli/stats')
+def registerObserve(remoteDir, client, resource, remotePort=5685, expectsRejection=False):
+    '''Registers for Observe notifications for a resource.
 
-    remoteClient = pexpect.spawn(remoteDir + '/coap-client -N -m post -U -T 5a coap://[::1]:5681/reg')
+    :param remoteDir: string Directory in which to run libcoap example client
+    :param client: spawn Pexpect process for observer Python client
+    :param resource: string Name of the resource on the gcoap server to observe
+    :param remotePort: int Port on which client listens for commands from
+                       remote client
+    :param expectsRejection: boolean If true, we expect the client Observe
+                             registration will fail
+    '''
+    regCmd       = '{0}/coap-client -N -m post -U -T 5a coap://[::1]:{1}/reg/{2}'
+    remoteClient = pexpect.spawn(regCmd.format(remoteDir, remotePort, resource))
     remoteClient.expect('v:1 t:NON c:POST')
     remoteClient.close()
-    print('Remote client ran OK')
+    print('Remote client sent /reg command to client')
 
-    pattern = '(2\.05; Observe len: 1; val: )(\d+\r\n)'
-    client.expect(pattern, timeout=5)
-    # Rerun regex to extract and print second group, the Observe option value.
-    match = re.search(pattern, client.after)
-    print('Client received /reg with Observe: {0}'.format(match.group(2)))
+    if expectsRejection:
+        i = client.expect('2\.05; Observe len: 0', timeout=5)
+        print('Client registration for {0} rejected, as expected'.format(resource))
+    else:
+        pattern = '(2\.05; Observe len: 1; val: )(\d+\r\n)'
+        client.expect(pattern, timeout=5)
+        # Rerun regex to extract and print second group, the Observe option value.
+        match = re.search(pattern, client.after)
+        print('Client registered for {0}; Observe value: {1}'.format(resource, match.group(2)))
 
-def deregisterObserve(remoteDir, client):
-    print('Deregister from /cli/stats')
-
-    remoteClient = pexpect.spawn(remoteDir + '/coap-client -N -m post -U -T 5a coap://[::1]:5681/dereg')
+def deregisterObserve(remoteDir, client, resource, remotePort=5685):
+    deregCmd     = '{0}/coap-client -N -m post -U -T 5a coap://[::1]:{1}/dereg/{2}'
+    remoteClient = pexpect.spawn(deregCmd.format(remoteDir, remotePort, resource))
     remoteClient.expect('v:1 t:NON c:POST')
     remoteClient.close()
-    print('Remote client ran OK')
+    print('Remote client sent /dereg command to client')
 
     client.expect('2\.05; Observe len: 0;')
-    print('Client received /dereg with no Observe')
+    print('Client deregistered from {0}; no Observe value, as expected'.format(resource))
 
-def triggerNotification(server, client):
+def triggerNotification(server, client, resource):
     server.sendline('coap get fe80::bbbb:1 5683 /time')
     server.expect('\w+ \d+ \d+:\d+:\d+\r\n')
-    print('Server got time: {0}'.format(server.after))
 
     pattern = '(2\.05; Observe len: 1; val: )(\d+\r\n)'
     client.expect(pattern, timeout=5)
     # Rerun regex to extract and print second group, the Observe option value.
     match = re.search(pattern, client.after)
-    print('Client received /cli/stats with Observe: {0}'.format(match.group(2)))
+    print('Client received {0} notification; Observe value: {1}'.format(resource, match.group(2)))
 
-def verifyNoNotification(server, client):
+def verifyNoNotification(server, client, resource):
     server.sendline('coap get fe80::bbbb:1 5683 /time')
     server.expect('\w+ \d+ \d+:\d+:\d+\r\n')
-    print('Server got time: {0}'.format(server.after))
 
     client.expect(pexpect.TIMEOUT, timeout=2)
-    print('Client did not receive /cli/stats notification, as expected')
+    print('Client did not receive {0} notification, as expected'.format(resource))
 
 if __name__ == "__main__":
     from optparse import OptionParser
@@ -147,10 +180,12 @@ if __name__ == "__main__":
     # read command line
     parser = OptionParser()
     parser.add_option('-a', type='string', dest='addr')
+    parser.add_option('-t', type='string', dest='testName')
     parser.add_option('-x', type='string', dest='serverDir', default=None)
     parser.add_option('-y', type='string', dest='clientDir', default=None)
     parser.add_option('-z', type='string', dest='remoteDir', default=None)
 
     (options, args) = parser.parse_args()
 
-    main(options.addr, options.serverDir, options.clientDir, options.remoteDir)
+    main(options.addr, options.testName, options.serverDir, options.clientDir,
+                                                            options.remoteDir)
