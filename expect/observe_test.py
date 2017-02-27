@@ -10,7 +10,7 @@ soscoap stats_reader as the client.
 
 Options:
 
--a <addr>  -- Address of server
+-a <addr>  -- Address of gcoap server
 -t <test> --- Name of test to run. Options:
                 observe -- Register and listen for notifications for /cli/stats
                 toomanymemos -- Try to register for too many resources
@@ -31,7 +31,17 @@ $ sudo ip link set tap0 up
 $ sudo ip address add fe80::bbbb:1/64 dev tap0
 
 # Run test
-$ ./observe_test.py -a fe80::bbbb:1 -t observe -x /home/kbee/dev/riot/repo/examples/gcoap -y /home/kbee/dev/gcoap-test/repo -z /home/kbee/dev/libcoap/repo/examples
+$ ./observe_test.py -a fe80::bbbb:2 -t observe -x /home/kbee/dev/riot/repo/examples/gcoap -y /home/kbee/dev/gcoap-test/repo -z /home/kbee/dev/libcoap/repo/examples
+
+# tun example
+# Reset samr21 board, then set up networking
+$ cd /home/kbee/dev/riot/repo/dist/tools/tunslip
+$ sudo ./tunslip6 -s ttyUSB0 -t tun0 bbbb::1/64
+# new terminal
+$ sudo ip -6 route add aaaa::/64 dev tun0
+
+# Run test
+$ ./observe_test.py -a bbbb::2 -t observe -x /home/kbee/dev/riot/repo/examples/gcoap -y /home/kbee/dev/gcoap-test/repo -z /home/kbee/dev/libcoap/repo/examples
 
 '''
 from __future__ import print_function
@@ -54,29 +64,40 @@ def main(addr, testName, serverDir, clientDir, remoteDir):
                              or None if pwd
     '''
     xfaceType = 'tap' if addr[:4] == 'fe80' else 'tun'
+    if xfaceType == 'tap':
+        externAddr       = '{0}%tap0'.format(addr)
+        remoteServerAddr = 'fe80::bbbb:1'
+    else:
+        externAddr = addr
+        remoteServerAddr = 'bbbb::1'
     print('Setup Observe test for {0} interface'.format(xfaceType))
 
     if xfaceType == 'tap':
         server = pexpect.spawn('make term', cwd=serverDir)
         server.expect('gcoap example app')
     else:
-        server = pexpect.spawn('make term BOARD="samr21-xpro"')
+        server = pexpect.spawn('make term BOARD="samr21-xpro"', cwd=serverDir)
         server.expect('Welcome to pyterm!')
     time.sleep(1)
 
     # configure network interfaces
     if xfaceType == 'tap':
-        server.sendline('ifconfig 6 add unicast fe80::bbbb:2/64')
+        server.sendline('ifconfig 6 add unicast {0}/64'.format(addr))
         server.expect('success:')
     else:
-        server.sendline('ifconfig 8 add unicast bbbb::2/64')
+        server.sendline('ifconfig 8 add unicast {0}/64'.format(addr))
         server.expect('success:')
-        server.sendline('ncache add 8 bbbb::1')
+        server.sendline('ncache add 8 {0}'.format(remoteServerAddr))
         server.expect('success:')
     time.sleep(2)
     print('gcoap Server setup OK')
 
-    client = pexpect.spawn('python -m gcoaptest.observer -s 5684 -a fe80::bbbb:2%tap0', cwd=clientDir, env={'PYTHONPATH': '../../soscoap/repo'})
+    # parameterize command to run client
+    clientCmd = 'python -m gcoaptest.observer -s {0} -a {1}'
+
+    client = pexpect.spawn(clientCmd.format(5684, externAddr),
+                           cwd=clientDir,
+                           env={'PYTHONPATH': '../../soscoap/repo'})
     client.expect('Starting gcoap observer')
     time.sleep(1)
     print('Client setup OK')
@@ -92,12 +113,12 @@ def main(addr, testName, serverDir, clientDir, remoteDir):
         client2 = None
         if testName == 'observe':
             registerObserve(remoteDir, client, 'stats')
-            triggerNotification(server, client, 'stats')
+            triggerNotification(server, client, 'stats', remoteServerAddr)
             time.sleep(2)
-            triggerNotification(server, client, 'stats')
+            triggerNotification(server, client, 'stats', remoteServerAddr)
             deregisterObserve(remoteDir, client, 'stats')
             time.sleep(2)
-            verifyNoNotification(server, client, 'stats')
+            verifyNoNotification(server, client, 'stats', remoteServerAddr)
 
         elif testName == 'toomanymemos':
             registerObserve(remoteDir, client, 'stats')
@@ -106,12 +127,16 @@ def main(addr, testName, serverDir, clientDir, remoteDir):
         elif testName == 'toomanyobs':
             registerObserve(remoteDir, client, 'stats')
 
-            client2 = pexpect.spawn('python -m gcoaptest.observer -s 5686 -a fe80::bbbb:2%tap0', cwd=clientDir, env={'PYTHONPATH': '../../soscoap/repo'})
+            client2 = pexpect.spawn(clientCmd.format(5686, externAddr),
+                                    cwd=clientDir,
+                                    env={'PYTHONPATH': '../../soscoap/repo'})
             client2.expect('Starting gcoap observer')
             time.sleep(1)
             print('Client 2 setup OK')
 
             registerObserve(remoteDir, client2, 'stats', remotePort=5687, expectsRejection=True)
+        else:
+            print('Unexpected test name: {0}'.format(testName))
     finally:
         server.close()
         client.close()
@@ -157,8 +182,8 @@ def deregisterObserve(remoteDir, client, resource, remotePort=5685):
     client.expect('2\.05; Observe len: 0;')
     print('Client deregistered from {0}; no Observe value, as expected'.format(resource))
 
-def triggerNotification(server, client, resource):
-    server.sendline('coap get fe80::bbbb:1 5683 /time')
+def triggerNotification(server, client, resource, remoteServerAddr):
+    server.sendline('coap get {0} 5683 /time'.format(remoteServerAddr))
     server.expect('\w+ \d+ \d+:\d+:\d+\r\n')
 
     pattern = '(2\.05; Observe len: 1; val: )(\d+\r\n)'
@@ -167,8 +192,8 @@ def triggerNotification(server, client, resource):
     match = re.search(pattern, client.after)
     print('Client received {0} notification; Observe value: {1}'.format(resource, match.group(2)))
 
-def verifyNoNotification(server, client, resource):
-    server.sendline('coap get fe80::bbbb:1 5683 /time')
+def verifyNoNotification(server, client, resource, remoteServerAddr):
+    server.sendline('coap get {0} 5683 /time'.format(remoteServerAddr))
     server.expect('\w+ \d+ \d+:\d+:\d+\r\n')
 
     client.expect(pexpect.TIMEOUT, timeout=2)
