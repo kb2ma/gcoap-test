@@ -14,7 +14,10 @@ Options:
 -t <test> --- Name of test to run. Options:
                 observe -- Register and listen for notifications for /cli/stats
                 toomanymemos -- Try to register for too many resources
-                toomanyobs -- Try to register too many observers
+                toomany4resource -- Try to register more than one observer for
+                                    a resource
+                two-observers -- Register two observers, each for a different
+                                 resource
 -x <dir>   -- Directory in which to execute the server script; must be the
               location of the RIOT gcoap example app.
 -y <dir>   -- Directory in which to execute the client script; must be the
@@ -124,7 +127,7 @@ def main(addr, testName, serverDir, clientDir, remoteDir):
             registerObserve(remoteDir, client, 'stats')
             registerObserve(remoteDir, client, 'core', expectsRejection=True)
 
-        elif testName == 'toomanyobs':
+        elif testName == 'toomany4resource':
             registerObserve(remoteDir, client, 'stats')
 
             client2 = pexpect.spawn(clientCmd.format(5686, externAddr),
@@ -135,6 +138,18 @@ def main(addr, testName, serverDir, clientDir, remoteDir):
             print('Client 2 setup OK')
 
             registerObserve(remoteDir, client2, 'stats', remotePort=5687, expectsRejection=True)
+
+        elif testName == 'two-observers':
+            registerObserve(remoteDir, client, 'stats')
+
+            client2 = pexpect.spawn(clientCmd.format(5686, externAddr),
+                                    cwd=clientDir,
+                                    env={'PYTHONPATH': '../../soscoap/repo'})
+            client2.expect('Starting gcoap observer')
+            time.sleep(1)
+            print('Client 2 setup OK')
+
+            registerObserve(remoteDir, client2, 'core', remotePort=5687, expectsRejection=False)
         else:
             print('Unexpected test name: {0}'.format(testName))
     finally:
