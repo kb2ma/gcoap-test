@@ -27,8 +27,9 @@ Options:
                                     a resource
                 two-observers -- Register two observers, each for a different
                                  resource
+                reg-cleanup -- Ensures registrations are deleted properly
 -x <dir>   -- Directory in which to execute the server script; must be the
-              location of the RIOT gcoap example app.
+              location of the RIOT gcoap CLI test app.
 -y <dir>   -- Directory in which to execute the client script; must be the
               location of the gcoap observer Python app.
 -z <dir>   -- Directory in which to execute the support client and server
@@ -43,7 +44,7 @@ $ sudo ip link set tap0 up
 $ sudo ip address add fe80::bbbb:1/64 dev tap0
 
 # Run test
-$ ./observe_test.py -a fe80::bbbb:2 -t observe -x /home/kbee/dev/riot/repo/examples/gcoap -y /home/kbee/dev/gcoap-test/repo -z /home/kbee/dev/libcoap/repo/examples
+$ ./observe_test.py -a fe80::bbbb:2 -t observe -x /home/kbee/dev/riot-gcoap-test/repo -y /home/kbee/dev/gcoap-test/repo -z /home/kbee/dev/libcoap/repo/examples
 
 # tun example
 # Reset samr21 board, then set up networking
@@ -53,7 +54,7 @@ $ sudo ./tunslip6 -s ttyUSB0 -t tun0 bbbb::1/64
 $ sudo ip -6 route add aaaa::/64 dev tun0
 
 # Run test
-$ ./observe_test.py -a bbbb::2 -t observe -x /home/kbee/dev/riot/repo/examples/gcoap -y /home/kbee/dev/gcoap-test/repo -z /home/kbee/dev/libcoap/repo/examples
+$ ./observe_test.py -a bbbb::2 -t observe -x /home/kbee/dev/riot-gcoap-test/repo -y /home/kbee/dev/gcoap-test/repo -z /home/kbee/dev/libcoap/repo/examples
 
 '''
 from __future__ import print_function
@@ -80,7 +81,7 @@ class ObserveTester(object):
     Usage:
         1. Create instance
         2. runTest()
-        3. close() instance; best in a finally block
+        3. close() instance; best in a finally block around the first two steps
     '''
 
     def __init__(self, addr, serverDir, clientDir, supportDir):
@@ -107,7 +108,7 @@ class ObserveTester(object):
         # set up server
         if xfaceType == 'tap':
             self._server = pexpect.spawn('make term', cwd=serverDir)
-            self._server.expect('gcoap example app')
+            self._server.expect('gcoap CLI test app')
         else:
             self._server = pexpect.spawn('make term BOARD="samr21-xpro"', cwd=serverDir)
             self._server.expect('Welcome to pyterm!')
@@ -196,11 +197,49 @@ class ObserveTester(object):
             finally:
                 if client2:
                     client2.close()
+
+        elif testName == 'reg-cleanup':
+            self._registerObserve(self._client, 'stats')
+            self._registerObserve(self._client, 'core')
+
+            try:
+                client3 = None
+                client2 = pexpect.spawn(self._clientCmd.format(5686,
+                                        self._serverQualifiedAddr),
+                                        cwd=self._clientDir,
+                                        env={'PYTHONPATH': '../../soscoap/repo'})
+                client2.expect('Starting gcoap observer')
+                time.sleep(1)
+                print('Client 2 setup OK')
+
+                self._registerObserve(client2, 'stats2', commandPort=5687,
+                                                         expectsRejection=True)
+
+                self._deregisterObserve(self._client, 'core')
+
+                # Must use a third client becase we want to test the failure
+                # that client2 was not cleared by the deregister step.
+                client3 = pexpect.spawn(self._clientCmd.format(5688,
+                                        self._serverQualifiedAddr),
+                                        cwd=self._clientDir,
+                                        env={'PYTHONPATH': '../../soscoap/repo'})
+                client3.expect('Starting gcoap observer')
+                time.sleep(1)
+                print('Client 3 setup OK')
+
+                self._registerObserve(client3, 'stats2', commandPort=5689,
+                                                         expectsRejection=False)
+            finally:
+                if client2:
+                    client2.close()
+                if client3:
+                    client3.close()
+
         else:
             print('Unexpected test name: {0}'.format(testName))
 
     def close(self):
-        '''Release resources
+        '''Releases resources
         '''
         if self._server:
             self._server.close()

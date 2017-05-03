@@ -104,12 +104,18 @@ class GcoapObserver(object):
         elif resource.path == '/reg/core':
             observeAction = 'reg'
             observePath   = 'core'
+        elif resource.path == '/reg/stats2':
+            observeAction = 'reg'
+            observePath   = 'stats2'
         elif resource.path == '/dereg/stats':
             observeAction = 'dereg'
             observePath   = 'stats'
         elif resource.path == '/dereg/core':
             observeAction = 'dereg'
             observePath   = 'core'
+        elif resource.path == '/dereg/stats2':
+            observeAction = 'dereg'
+            observePath   = 'stats2'
 
         self._query(observeAction, observePath)
 
@@ -133,6 +139,9 @@ class GcoapObserver(object):
         elif observePath == 'stats':
             msg.addOption( CoapOption(OptionType.UriPath, 'cli') )
             msg.addOption( CoapOption(OptionType.UriPath, 'stats') )
+        elif observePath == 'stats2':
+            msg.addOption( CoapOption(OptionType.UriPath, 'cli') )
+            msg.addOption( CoapOption(OptionType.UriPath, 'stats2') )
 
         if observeAction == 'reg':
             # register
