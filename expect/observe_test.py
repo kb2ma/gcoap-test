@@ -43,11 +43,12 @@ $ sudo ip tuntap add tap0 mode tap user kbee
 $ sudo ip link set tap0 up
 $ sudo ip address add fe80::bbbb:1/64 dev tap0
 
-# Run test
+# Run test; uses special riot-gcoap-test app
 $ ./observe_test.py -a fe80::bbbb:2 -t observe -x /home/kbee/dev/riot-gcoap-test/repo -y /home/kbee/dev/gcoap-test/repo -z /home/kbee/dev/libcoap/repo/examples
 
 # tun example
-# Reset samr21 board, then set up networking
+# Reset samr21 board, *then* set up networking.
+# Must reset board and networking before each test!
 $ cd /home/kbee/dev/riot/repo/dist/tools/tunslip
 $ sudo ./tunslip6 -s ttyUSB0 -t tun0 bbbb::1/64
 # new terminal
@@ -101,8 +102,8 @@ class ObserveTester(object):
             self._serverQualifiedAddr = '{0}%tap0'.format(addr)
             self._supportServerAddr   = 'fe80::bbbb:1'
         else:
-            self._serverQualifiedAddr        = addr
-            self._supportServerAddr = 'bbbb::1'
+            self._serverQualifiedAddr = addr
+            self._supportServerAddr   = 'bbbb::1'
         print('Setup Observe test for {0} interface'.format(xfaceType))
 
         # set up server

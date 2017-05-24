@@ -35,8 +35,6 @@ from   soscoap.message  import CoapOption
 from   soscoap.msgsock  import MessageSocket
 from   soscoap.client   import CoapClient
 from   soscoap.server   import CoapServer
-from   threading import Timer
-import time
 
 logging.basicConfig(filename='observer.log', level=logging.DEBUG, 
                     format='%(asctime)s %(module)s %(message)s')
