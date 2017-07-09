@@ -22,7 +22,12 @@ Example:
 
 # Assumes gcoap server exists, and interface initialized with fixed address.
 #    See creation of this address in riot2gcoaptest.py.
+
+# tap example
 $ PATH=${PATH}:/home/kbee/dev/libcoap/repo/examples ./libcoap2riot.py -a fe80::bbbb:2 -t repeat-get -r 30
+
+# tun example
+$ PATH=${PATH}:/home/kbee/dev/libcoap/repo/examples ./libcoap2riot.py -a bbbb::2 -t repeat-get -r 30
 '''
 from __future__ import print_function
 import time
