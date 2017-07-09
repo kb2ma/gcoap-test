@@ -15,6 +15,7 @@ for gcoaptest server, as well as start the server itself. See examples below.
 Options:
 
 -a <addr>  -- Address of server
+-c         -- Send message confirmably. For 'repeat-get' test only.
 -d <secs>  -- Server built-in response delay, in seconds
 -r <count> -- Number of times to repeat query, with a 1 second wait between
               response and next request. For 'repeat-get' test only.
@@ -23,6 +24,7 @@ Options:
                 toobig -- Requests a response that is too long to process
                 toomany -- Makes a request when the limit of open requests has
                            been reached
+                cmdargs -- Tries various arguments for the command line
 -x <dir>   -- Directory in which to execute the script; must be location of
               RIOT gcoap example app.
 
@@ -62,7 +64,7 @@ import time
 import os
 import pexpect
 
-def main(addr, testName, serverDelay, repeatCount):
+def main(addr, testName, serverDelay, repeatCount, confirmable):
     '''Common setup for all tests
     '''
     xfaceType = 'tap' if addr[:4] == 'fe80' else 'tun'
@@ -87,15 +89,17 @@ def main(addr, testName, serverDelay, repeatCount):
         child.expect('success:')
 
     if testName == 'repeat-get':
-        runRepeatGet(child, addr, serverDelay, repeatCount)
+        runRepeatGet(child, addr, serverDelay, repeatCount, confirmable)
     elif testName == 'toobig':
         runToobig(child, addr)
     elif testName == 'toomany':
         runToomany(child, addr)
+    elif testName == 'cmdargs':
+        runCmdargs(child, addr)
     else:
         print('Unexpected test name: {0}'.format(testName))
 
-def runRepeatGet(child, addr, serverDelay, repeatCount):
+def runRepeatGet(child, addr, serverDelay, repeatCount, confirmable):
     '''Repeats a simple GET request
     '''
     print('Test: Repeat GET /ver')
@@ -103,10 +107,12 @@ def runRepeatGet(child, addr, serverDelay, repeatCount):
     child.sendline('coap post {0} 5683 /cf/delay {1}'.format(addr, serverDelay))
     child.expect('code 2\.04')
     print('Server delay set to {0}\n'.format(serverDelay))
+
+    confirmOpt = '-c' if confirmable else ''
     
     for x in range(repeatCount):
         time.sleep(1)
-        child.sendline('coap get {0} 5683 /ver'.format(addr))
+        child.sendline('coap get {0} {1} 5683 /ver'.format(confirmOpt, addr))
         child.expect('0\.1')
         print('Success: {0}'.format(child.after))
         
@@ -145,12 +151,28 @@ def runToomany(child, addr):
     print('Sent 3; failed as expected')
     child.close()
 
+def runCmdargs(child, addr):
+    print('Test: command arguments')
+
+    child.sendline('coap')
+    child.expect('usage: coap <get')
+
+    child.sendline('coap info')
+    child.expect('CoAP server is listening')
+
+    child.sendline('coap get')
+    child.expect('usage: coap.*\nOptions\r\n.*Send confirmably')
+
+    print('Success')
+    child.close()
+
 if __name__ == "__main__":
     from optparse import OptionParser
 
     # read command line
     parser = OptionParser()
     parser.add_option('-a', type='string', dest='addr')
+    parser.add_option('-c', action='store_true', dest='confirmable', default=False)
     parser.add_option('-d', type='int', dest='serverDelay', default=0)
     parser.add_option('-r', type='int', dest='repeatCount', default=1)
     parser.add_option('-t', type='string', dest='testName')
@@ -163,7 +185,8 @@ if __name__ == "__main__":
         curdir = os.getcwd()
         os.chdir(options.execDir)
     try:
-        main(options.addr, options.testName, options.serverDelay, options.repeatCount)
+        main(options.addr, options.testName, options.serverDelay, options.repeatCount,
+             options.confirmable)
     finally:
         if options.execDir:
             os.chdir(curdir) 
