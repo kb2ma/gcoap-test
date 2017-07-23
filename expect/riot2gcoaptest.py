@@ -23,7 +23,8 @@ Options:
                 repeat-get -- Repeats a sinple GET request
                 toobig -- Requests a response that is too long to process
                 toomany -- Makes a request when the limit of open requests has
-                           been reached
+                           been reached. If confirmable,  the limit is the
+                           number of open confirmable requests.
                 cmdargs -- Tries various arguments for the command line
 -x <dir>   -- Directory in which to execute the script; must be location of
               RIOT gcoap example app.
@@ -93,7 +94,10 @@ def main(addr, testName, serverDelay, repeatCount, confirmable):
     elif testName == 'toobig':
         runToobig(child, addr)
     elif testName == 'toomany':
-        runToomany(child, addr)
+        if confirmable:
+            runToomanyConfirm(child, addr)
+        else:
+            runToomany(child, addr)
     elif testName == 'cmdargs':
         runCmdargs(child, addr)
     else:
@@ -151,6 +155,20 @@ def runToomany(child, addr):
     print('Sent 3; failed as expected')
     child.close()
 
+def runToomanyConfirm(child, addr):
+    # Could have implemented within runToomany, but it's simpler to keep them
+    # separate.
+    print('Test: Too many open confirmable requests to send another')
+
+    child.sendline('coap get -c {0} 5683 /ignore'.format(addr))
+    child.expect('sending msg')
+    print('Sent 1')
+
+    child.sendline('coap get -c {0} 5683 /ignore'.format(addr))
+    child.expect('send failed')
+    print('Sent 2; failed as expected')
+    child.close()
+
 def runCmdargs(child, addr):
     print('Test: command arguments')
 
@@ -160,8 +178,9 @@ def runCmdargs(child, addr):
     child.sendline('coap info')
     child.expect('CoAP server is listening')
 
+    # Must include wildcard before 'Options' to support use over tun.
     child.sendline('coap get')
-    child.expect('usage: coap.*\nOptions\r\n.*Send confirmably')
+    child.expect('usage: coap.*\n.*Options\r\n.*Send confirmably')
 
     print('Success')
     child.close()
