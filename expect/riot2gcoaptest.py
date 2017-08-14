@@ -21,6 +21,10 @@ Options:
               response and next request. For 'repeat-get' test only.
 -t <test> --- Name of test to run. Options:
                 repeat-get -- Repeats a sinple GET request
+                con-retries -- gcoaptest server ignores requests, to test
+                               retrying a confirmable request. Expects -r
+                               parameter for number of requests/retries to
+                               ignore.
                 toobig -- Requests a response that is too long to process
                 toomany -- Makes a request when the limit of open requests has
                            been reached. If confirmable,  the limit is the
@@ -63,6 +67,7 @@ terminal persist.
 from __future__ import print_function
 import time
 import os
+import signal
 import pexpect
 
 def main(addr, testName, serverDelay, repeatCount, confirmable):
@@ -91,6 +96,8 @@ def main(addr, testName, serverDelay, repeatCount, confirmable):
 
     if testName == 'repeat-get':
         runRepeatGet(child, addr, serverDelay, repeatCount, confirmable)
+    elif testName == 'con-retries':
+        runConRetries(child, addr, repeatCount)
     elif testName == 'toobig':
         runToobig(child, addr)
     elif testName == 'toomany':
@@ -130,6 +137,46 @@ def runRepeatGet(child, addr, serverDelay, repeatCount, confirmable):
     child.expect('open requests.*\n')
     print(child.after)
     child.close()
+
+def runConRetries(child, addr, retryCount):
+    '''Sends a confirmable request after configuring the server for the count
+    of requests/retries to ignore. We expect the request to timeout if the
+    server ignores 5 requests/retries.
+    '''
+    print('Test: Confirmable retries')
+    time.sleep(1)
+    child.sendline('coap put {0} 5683 /ver/ignores {1}'.format(addr, retryCount))
+    child.expect('code 2\.04')
+    print('Server request ignores set to {0}\n'.format(retryCount))
+
+    time.sleep(1)
+    child.sendline('coap get -c {0} 5683 /ver'.format(addr))
+    # Uses ACK_RANDOM_FACTOR of 1.5, and adds a couple of extra seconds
+    timeout = 3
+    for i in range(1, retryCount+1):
+        timeout = timeout + 2**i + 2**(i-1)
+    print('Timeout is {0}'.format(timeout))
+    
+    if (retryCount <= 4):
+        child.expect('0\.1', timeout=timeout)
+        print('Success: {0}'.format(child.after))
+    else:
+        child.expect('timeout', timeout=timeout)
+        print('Success: {0}'.format(child.after))
+
+    print('Wait to check open requests')
+    time.sleep(5)
+    child.sendline('coap info')
+    child.expect('open requests.*\n')
+    print(child.after)
+    # Must force here, for unknown reasons
+    print('Killing gcoap app...')
+    for i in range(5):
+        if child.isalive():
+            time.sleep(i)
+            child.kill(signal.SIGKILL)
+    if child.isalive():
+        print('Could not kill gcoap app')
 
 def runToobig(child, addr):
     print('Test: GET /toobig')

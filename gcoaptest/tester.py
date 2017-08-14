@@ -48,6 +48,8 @@ class GcoapTester(object):
         | /ignore -- GET that does not respond.
         | Configuration
         | /cf/delay -- POST integer seconds to delay future responses
+        | /ver/ignores -- PUT count of /ver requests to ignore before responding;
+                          tests client retry mechanism
     '''
     def __init__(self, port=soscoap.COAP_PORT):
         '''Pass in port for non-standard CoAP port.
@@ -57,6 +59,7 @@ class GcoapTester(object):
         self._server.registerForResourcePut(self._putResource)
         self._server.registerForResourcePost(self._postResource)
         self._delay = 0
+        self._verIgnores = 0
         
     def close(self):
         '''Releases system resources.
@@ -68,13 +71,16 @@ class GcoapTester(object):
         '''
         log.debug('Resource path is {0}'.format(resource.path))
         if resource.path == '/ver':
-            resource.type  = 'string'
-            resource.value = VERSION
-            log.debug('Got resource value')
+            if self._verIgnores > 0:
+                self._verIgnores = self._verIgnores - 1
+                raise IgnoreRequestException
+                return
+            else:
+                resource.type  = 'string'
+                resource.value = VERSION
         elif resource.path == '/toobig':
             resource.type  = 'string'
             resource.value = '1234567890' * 13
-            log.debug('Got resource value')
         elif resource.path == '/ignore':
             time.sleep(self._delay)
             raise IgnoreRequestException
@@ -95,13 +101,16 @@ class GcoapTester(object):
             log.debug('Post delay value: {0}'.format(self._delay))
         else:
             time.sleep(self._delay)
-            raise NotImplementedError('Unknown path')
+            raise NotImplementedError('Unknown path: {0}'.format(resource.path))
     
     def _putResource(self, resource):
         '''Accepts the value for the provided resource, for a PUT request.
         '''
-        log.debug('Resource path is {0}'.format(resource.path))
-        raise NotImplementedError('Unknown path')
+        if resource.path == '/ver/ignores':
+            self._verIgnores = int(resource.value)
+            log.debug('Ignores for /ver: {0}'.format(self._verIgnores))
+        else:
+            raise NotImplementedError('Unknown path: {0}'.format(resource.path))
 
     def start(self):
         '''Creates the server, and opens the file for this recorder.
