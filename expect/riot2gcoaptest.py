@@ -136,7 +136,14 @@ def runRepeatGet(child, addr, serverDelay, repeatCount, confirmable):
     child.sendline('coap info')
     child.expect('open requests.*\n')
     print(child.after)
-    child.close()
+    # Must force here
+    print('Killing gcoap app...')
+    for i in range(5):
+        if child.isalive():
+            time.sleep(i)
+            child.kill(signal.SIGKILL)
+    if child.isalive():
+        print('Could not kill gcoap app')
 
 def runConRetries(child, addr, retryCount):
     '''Sends a confirmable request after configuring the server for the count
@@ -169,7 +176,7 @@ def runConRetries(child, addr, retryCount):
     child.sendline('coap info')
     child.expect('open requests.*\n')
     print(child.after)
-    # Must force here, for unknown reasons
+    # Must force here
     print('Killing gcoap app...')
     for i in range(5):
         if child.isalive():

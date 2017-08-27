@@ -28,6 +28,7 @@ from   soscoap  import CodeClass
 from   soscoap  import MessageType
 from   soscoap  import OptionType
 from   soscoap  import RequestCode
+from   soscoap  import ClientResponseCode
 from   soscoap  import COAP_PORT
 from   soscoap.resource import SosResourceTransfer
 from   soscoap.message  import CoapMessage
@@ -88,6 +89,9 @@ class GcoapObserver(object):
         
         print('Response code: {0}.{1}{2}; Observe {3}'.format(message.codeClass, prefix,
                                                               message.codeDetail, obsText))
+
+        if message.messageType == MessageType.CON:
+            self._ackConfirmNotification(message)
 
     def _postServerResource(self, resource):
         '''Reads a command
@@ -159,6 +163,22 @@ class GcoapObserver(object):
 
         # send message
         log.debug('Sending query')
+        self._client.send(msg)
+
+    def _ackConfirmNotification(self, notif):
+        '''Sends an empty ACK response to a confirmable notification
+
+        :param notif: CoapMessage Observe notification from server
+        '''
+        msg             = CoapMessage(notif.address)
+        msg.messageType = MessageType.ACK
+        msg.codeClass   = CodeClass.Empty
+        msg.codeDetail  = ClientResponseCode.Empty
+        msg.messageId   = notif.messageId
+        msg.tokenLength = 0
+        msg.token       = None
+
+        log.debug('Sending ACK for CON notification')
         self._client.send(msg)
 
     def start(self):

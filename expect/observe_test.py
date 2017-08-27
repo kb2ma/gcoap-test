@@ -20,6 +20,8 @@
 Options:
 
 -a <addr>  -- Address of gcoap server
+-c         -- Confirmable; only applies to 'observe' test for message type of
+              notifications
 -t <test> --- Name of test to run. Options:
                 observe -- Register and listen for notifications for /cli/stats
                 toomanymemos -- Try to register for too many resources
@@ -29,7 +31,7 @@ Options:
                                  resource
                 reg-cleanup -- Ensures registrations are deleted properly
 -x <dir>   -- Directory in which to execute the server script; must be the
-              location of the RIOT gcoap CLI test app.
+              location of the RIOT gcoap CLI test app (riot-gcoap-test).
 -y <dir>   -- Directory in which to execute the client script; must be the
               location of the gcoap observer Python app.
 -z <dir>   -- Directory in which to execute the support client and server
@@ -78,6 +80,7 @@ class ObserveTester(object):
         :_clientDir: Directory in which to run client, or None if pwd
         :_supportDir: Directory in which to run support client/server, or None
                       if pwd
+        :_confirmable: Observe notifications will be sent confirmable if true
 
     Usage:
         1. Create instance
@@ -85,7 +88,7 @@ class ObserveTester(object):
         3. close() instance; best in a finally block around the first two steps
     '''
 
-    def __init__(self, addr, serverDir, clientDir, supportDir):
+    def __init__(self, addr, serverDir, clientDir, supportDir, confirmable):
         '''Common setup for running a test
 
         :param addr: string Server address
@@ -94,8 +97,9 @@ class ObserveTester(object):
         :param supportDir: string Directory in which to run support client/server,
                                  or None if pwd
         '''
-        self._clientDir  = clientDir
-        self._supportDir = supportDir
+        self._clientDir   = clientDir
+        self._supportDir  = supportDir
+        self._confirmable = confirmable
         
         xfaceType = 'tap' if addr[:4] == 'fe80' else 'tun'
         if xfaceType == 'tap':
@@ -151,12 +155,17 @@ class ObserveTester(object):
         :param testName: string Test to run
         '''
         if testName == 'observe':
+            # Sleeps 4 seconds to let server resend notification if confirmable
+            # and it does not receive the expected empty ACK.
+            if self._confirmable:
+                self._configNotification(self._server)
             self._registerObserve(self._client, 'stats')
+
             self._triggerNotification(self._server, self._client, 'stats')
-            time.sleep(2)
+            time.sleep(4)
             self._triggerNotification(self._server, self._client, 'stats')
             self._deregisterObserve(self._client, 'stats')
-            time.sleep(2)
+            time.sleep(4)
             self._verifyNoNotification(self._server, self._client, 'stats')
 
         elif testName == 'toomanymemos':
@@ -291,8 +300,13 @@ class ObserveTester(object):
         client.expect('2\.05; Observe len: 0;')
         print('Client deregistered from {0}; no Observe value, as expected'.format(resource))
 
+    def _configNotification(self, server):
+        server.sendline('coap config obs.msg_type CON')
+        server.expect('Observe notifications now sent CON\r\n')
+
     def _triggerNotification(self, server, client, resource):
         server.sendline('coap get {0} 5683 /time'.format(self._supportServerAddr))
+        # Expects month day time
         server.expect('\w+ \d+ \d+:\d+:\d+\r\n')
 
         pattern = '(2\.05; Observe len: 1; val: )(\d+\r\n)'
@@ -315,6 +329,7 @@ if __name__ == "__main__":
     # read command line
     parser = OptionParser()
     parser.add_option('-a', type='string', dest='addr')
+    parser.add_option('-c', action='store_true', dest='confirmable', default=False)
     parser.add_option('-t', type='string', dest='testName')
     parser.add_option('-x', type='string', dest='serverDir', default=None)
     parser.add_option('-y', type='string', dest='clientDir', default=None)
@@ -322,9 +337,10 @@ if __name__ == "__main__":
 
     (options, args) = parser.parse_args()
 
+    tester = None
     try:
         tester = ObserveTester(options.addr, options.serverDir, options.clientDir,
-                                                                options.supportDir)
+                               options.supportDir, options.confirmable)
         tester.runTest(options.testName)
     finally:
         if tester:
