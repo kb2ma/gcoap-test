@@ -46,20 +46,17 @@ VERSION = '0.1'
 class GcoapObserver(object):
     '''Reads statistics from a RIOT gcoap URL.
 
-    NB: As shown in the Usage section below, StatsReader starts the asyncore
-    loop before sending the query, like a server. This approach means the
-    query must be called via another thread. Another approach would be to use
-    asyncore's capabilities to create a single-use CoapClient and send the
-    query at startup, in the same thread.
-    
     Attributes:
-        :_addrTuple: tuple IPv6 address tuple for message destination
+        :_hostuple: tuple IPv6 address tuple for message destination
         :_client:    CoapClient Provides CoAP client for server queries
         :_registeredPaths: string:bytearray, where the key is the short name
                            for the path, and the value is the token used to
                            register for Observe notifications for the path
         :_server:    CoapServer Provides CoAP server for remote client commands
-    
+        :_ignoreConNotification: If True, ignores confirmable notifications
+                                 from the host. The server should deregister
+                                 the client from further notifications.
+
     Usage:
         #. sr = StatsReader(hostAddr, hostPort, sourcePort, query)  -- Create instance
         #. sr.start() -- Starts asyncore networking loop
@@ -78,6 +75,7 @@ class GcoapObserver(object):
         self._server.registerForResourcePost(self._postServerResource)
 
         self._registeredPaths = {}
+        self._ignoreConNotification = False
 
     def _responseClient(self, message):
         '''Reads a response to a request
@@ -90,8 +88,10 @@ class GcoapObserver(object):
         print('Response code: {0}.{1}{2}; Observe {3}'.format(message.codeClass, prefix,
                                                               message.codeDetail, obsText))
 
-        if message.messageType == MessageType.CON:
-            self._ackConfirmNotification(message)
+        if (message.messageType == MessageType.CON
+                and message.token in self._registeredPaths.values()):
+            if not self._ignoreConNotification:
+                self._ackConfirmNotification(message)
 
     def _postServerResource(self, resource):
         '''Reads a command
@@ -118,8 +118,11 @@ class GcoapObserver(object):
         elif resource.path == '/dereg/stats2':
             observeAction = 'dereg'
             observePath   = 'stats2'
+        elif resource.path == '/notif/ignore_con':
+            self._ignoreConNotification = True
 
-        self._query(observeAction, observePath)
+        if observePath:
+            self._query(observeAction, observePath)
 
     def _query(self, observeAction, observePath):
         '''Runs the reader's query

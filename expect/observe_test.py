@@ -20,8 +20,11 @@
 Options:
 
 -a <addr>  -- Address of gcoap server
--c         -- Confirmable; only applies to 'observe' test for message type of
-              notifications
+-c <ack|ignore> -- Confirmable options; only applies to 'observe' test.
+                   'ack' means to use and ack confirmable notifications;
+                   'ignore' means to use and ignore confirmable notifications
+-i         -- Ignore confirmable; only applies to 'observe' test for the client
+              to ignore confirmable notifications
 -t <test> --- Name of test to run. Options:
                 observe -- Register and listen for notifications for /cli/stats
                 toomanymemos -- Try to register for too many resources
@@ -80,7 +83,9 @@ class ObserveTester(object):
         :_clientDir: Directory in which to run client, or None if pwd
         :_supportDir: Directory in which to run support client/server, or None
                       if pwd
-        :_confirmable: Observe notifications will be sent confirmable if true
+        :_confirmable: If not None, observe notifications are sent confirmably.
+                      'ack' means to sned an ack response to the notification.
+                      'ignore' means to ignore the notifications
 
     Usage:
         1. Create instance
@@ -88,7 +93,7 @@ class ObserveTester(object):
         3. close() instance; best in a finally block around the first two steps
     '''
 
-    def __init__(self, addr, serverDir, clientDir, supportDir, confirmable):
+    def __init__(self, addr, serverDir, clientDir, supportDir, conAction):
         '''Common setup for running a test
 
         :param addr: string Server address
@@ -96,10 +101,12 @@ class ObserveTester(object):
         :param clientDir: string Directory in which to run client, or None if pwd
         :param supportDir: string Directory in which to run support client/server,
                                  or None if pwd
+        :param conAction: string Direct server to send notifications confirmably
+                                 and either ACK or ignore the notifications
         '''
-        self._clientDir   = clientDir
-        self._supportDir  = supportDir
-        self._confirmable = confirmable
+        self._clientDir  = clientDir
+        self._supportDir = supportDir
+        self._conAction  = conAction
         
         xfaceType = 'tap' if addr[:4] == 'fe80' else 'tun'
         if xfaceType == 'tap':
@@ -157,16 +164,21 @@ class ObserveTester(object):
         if testName == 'observe':
             # Sleeps 4 seconds to let server resend notification if confirmable
             # and it does not receive the expected empty ACK.
-            if self._confirmable:
+            if self._conAction:
                 self._configNotification(self._server)
             self._registerObserve(self._client, 'stats')
 
             self._triggerNotification(self._server, self._client, 'stats')
-            time.sleep(4)
-            self._triggerNotification(self._server, self._client, 'stats')
-            self._deregisterObserve(self._client, 'stats')
-            time.sleep(4)
-            self._verifyNoNotification(self._server, self._client, 'stats')
+            if self._conAction == 'ignore':
+                print('Pause 95 seconds for all retries to timeout')
+                time.sleep(95)
+                self._verifyNoNotification(self._server, self._client, 'stats')
+            else:
+                time.sleep(4)
+                self._triggerNotification(self._server, self._client, 'stats')
+                self._deregisterObserve(self._client, 'stats')
+                time.sleep(4)
+                self._verifyNoNotification(self._server, self._client, 'stats')
 
         elif testName == 'toomanymemos':
             self._registerObserve(self._client, 'stats')
@@ -271,6 +283,15 @@ class ObserveTester(object):
         :param expectsRejection: boolean If true, we expect the client Observe
                                  registration will fail
         '''
+        if self._conAction == 'ignore':
+            cmd = '{0}/coap-client -N -m post -U -T 5a coap://[::1]:{1}/notif/ignore_con'
+
+            commandClient = pexpect.spawn(cmd.format(self._supportDir, commandPort))
+            commandClient.expect('v:1 t:NON c:POST')
+            commandClient.close()
+            print('Command client sent /notif/ignore_con command to client')
+            time.sleep(1)
+
         regCmd       = '{0}/coap-client -N -m post -U -T 5a coap://[::1]:{1}/reg/{2}'
         commandClient = pexpect.spawn(regCmd.format(self._supportDir, commandPort,
                                                                       resource))
@@ -329,7 +350,7 @@ if __name__ == "__main__":
     # read command line
     parser = OptionParser()
     parser.add_option('-a', type='string', dest='addr')
-    parser.add_option('-c', action='store_true', dest='confirmable', default=False)
+    parser.add_option('-c', type='string', dest='conAction', default=None)
     parser.add_option('-t', type='string', dest='testName')
     parser.add_option('-x', type='string', dest='serverDir', default=None)
     parser.add_option('-y', type='string', dest='clientDir', default=None)
@@ -340,7 +361,7 @@ if __name__ == "__main__":
     tester = None
     try:
         tester = ObserveTester(options.addr, options.serverDir, options.clientDir,
-                               options.supportDir, options.confirmable)
+                               options.supportDir, options.conAction)
         tester.runTest(options.testName)
     finally:
         if tester:
