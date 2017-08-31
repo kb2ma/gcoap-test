@@ -53,9 +53,15 @@ class GcoapObserver(object):
                            for the path, and the value is the token used to
                            register for Observe notifications for the path
         :_server:    CoapServer Provides CoAP server for remote client commands
-        :_ignoreConNotification: If True, ignores confirmable notifications
-                                 from the host. The server should deregister
-                                 the client from further notifications.
+        :_notificationAction: If None, sends a normal 'ACK' response for a
+                              confirmable notification.
+                              If 'reset', sends a 'RST' response, which directs
+                              the server to deregister the client from further
+                              notifications.
+                              If 'ignore', does not send a response, which
+                              also directs the server to deregister the client
+                              for a confirmable notification.
+                              Note: 'reset_non' is NOT supported.
 
     Usage:
         #. sr = StatsReader(hostAddr, hostPort, sourcePort, query)  -- Create instance
@@ -75,7 +81,7 @@ class GcoapObserver(object):
         self._server.registerForResourcePost(self._postServerResource)
 
         self._registeredPaths = {}
-        self._ignoreConNotification = False
+        self._notificationAction = None
 
     def _responseClient(self, message):
         '''Reads a response to a request
@@ -88,10 +94,19 @@ class GcoapObserver(object):
         print('Response code: {0}.{1}{2}; Observe {3}'.format(message.codeClass, prefix,
                                                               message.codeDetail, obsText))
 
-        if (message.messageType == MessageType.CON
-                and message.token in self._registeredPaths.values()):
-            if not self._ignoreConNotification:
-                self._ackConfirmNotification(message)
+        if message.token in self._registeredPaths.values():
+            if message.messageType == MessageType.CON:
+                if self._notificationAction == 'reset':
+                    self._sendNotifResponse(message, 'reset')
+                elif self._notificationAction == None:
+                    self._sendNotifResponse(message, 'ack')
+                else:
+                    # no response when _notificationAction is 'ignore'
+                    pass
+
+            elif message.messageType == MessageType.NON:
+                if self._notificationAction == 'reset_non':
+                    self._sendNotifResponse(message, 'reset')
 
     def _postServerResource(self, resource):
         '''Reads a command
@@ -118,8 +133,12 @@ class GcoapObserver(object):
         elif resource.path == '/dereg/stats2':
             observeAction = 'dereg'
             observePath   = 'stats2'
-        elif resource.path == '/notif/ignore_con':
-            self._ignoreConNotification = True
+        elif resource.path == '/notif/con_ignore':
+            self._notificationAction = 'ignore'
+        elif resource.path == '/notif/con_reset':
+            self._notificationAction = 'reset'
+        elif resource.path == '/notif/non_reset':
+            self._notificationAction = 'reset_non'
 
         if observePath:
             self._query(observeAction, observePath)
@@ -168,20 +187,24 @@ class GcoapObserver(object):
         log.debug('Sending query')
         self._client.send(msg)
 
-    def _ackConfirmNotification(self, notif):
-        '''Sends an empty ACK response to a confirmable notification
+    def _sendNotifResponse(self, notif, responseType):
+        '''Sends an empty ACK or RST response to a notification
 
         :param notif: CoapMessage Observe notification from server
         '''
         msg             = CoapMessage(notif.address)
-        msg.messageType = MessageType.ACK
         msg.codeClass   = CodeClass.Empty
         msg.codeDetail  = ClientResponseCode.Empty
         msg.messageId   = notif.messageId
         msg.tokenLength = 0
         msg.token       = None
 
-        log.debug('Sending ACK for CON notification')
+        if responseType == 'reset':
+            msg.messageType = MessageType.RST
+        else:
+            msg.messageType = MessageType.ACK
+
+        log.debug('Sending {0} for notification response'.format(responseType))
         self._client.send(msg)
 
     def start(self):

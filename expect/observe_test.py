@@ -20,9 +20,13 @@
 Options:
 
 -a <addr>  -- Address of gcoap server
--c <ack|ignore> -- Confirmable options; only applies to 'observe' test.
-                   'ack' means to use and ack confirmable notifications;
-                   'ignore' means to use and ignore confirmable notifications
+-r <ack|ignore|reset|reset_non>
+           -- Notification response options; only applies to 'observe' test.
+              If this option is absent, notifications are sent non-confirmably.
+              'ack' -- send ACK for confirmable notifications;
+              'ignore' -- ignore confirmable notifications
+              'reset' -- send RST for confirmable notifications
+              'reset_non' -- send RST for non-confirmable notifications
 -i         -- Ignore confirmable; only applies to 'observe' test for the client
               to ignore confirmable notifications
 -t <test> --- Name of test to run. Options:
@@ -66,6 +70,7 @@ $ ./observe_test.py -a bbbb::2 -t observe -x /home/kbee/dev/riot-gcoap-test/repo
 from __future__ import print_function
 import time
 import os
+import signal
 import pexpect
 import re
 
@@ -83,9 +88,11 @@ class ObserveTester(object):
         :_clientDir: Directory in which to run client, or None if pwd
         :_supportDir: Directory in which to run support client/server, or None
                       if pwd
-        :_confirmable: If not None, observe notifications are sent confirmably.
-                      'ack' means to sned an ack response to the notification.
-                      'ignore' means to ignore the notifications
+        :_notifResponse: If not None, observe notifications are sent confirmably.
+                      'ack' -- send an ACK response to the notification
+                      'ignore' -- ignore the notifications
+                      'reset' -- send a RST response to the notification
+                      'reset_non' -- send a RST response non-confirmably
 
     Usage:
         1. Create instance
@@ -93,7 +100,7 @@ class ObserveTester(object):
         3. close() instance; best in a finally block around the first two steps
     '''
 
-    def __init__(self, addr, serverDir, clientDir, supportDir, conAction):
+    def __init__(self, addr, serverDir, clientDir, supportDir, notifResponse):
         '''Common setup for running a test
 
         :param addr: string Server address
@@ -102,11 +109,11 @@ class ObserveTester(object):
         :param supportDir: string Directory in which to run support client/server,
                                  or None if pwd
         :param conAction: string Direct server to send notifications confirmably
-                                 and either ACK or ignore the notifications
+                                 and either ACK, RST, or ignore the notifications
         '''
         self._clientDir  = clientDir
         self._supportDir = supportDir
-        self._conAction  = conAction
+        self._notifResponse  = notifResponse
         
         xfaceType = 'tap' if addr[:4] == 'fe80' else 'tun'
         if xfaceType == 'tap':
@@ -153,8 +160,6 @@ class ObserveTester(object):
         # No output when start support server
         self._supportServer.expect(pexpect.TIMEOUT, timeout=2)
         print('Support server setup OK')
-        print('Pause 20 seconds to seed Observe value\n')
-        time.sleep(20)
 
     def runTest(self, testName):
         '''Runs a test
@@ -162,22 +167,30 @@ class ObserveTester(object):
         :param testName: string Test to run
         '''
         if testName == 'observe':
-            # Sleeps 4 seconds to let server resend notification if confirmable
-            # and it does not receive the expected empty ACK.
-            if self._conAction:
-                self._configNotification(self._server)
+            if (self._notifResponse == 'ack'
+                    or self._notifResponse == 'ignore'
+                    or self._notifResponse == 'reset'):
+                self._configConNotification(self._server)
             self._registerObserve(self._client, 'stats')
 
             self._triggerNotification(self._server, self._client, 'stats')
-            if self._conAction == 'ignore':
-                print('Pause 95 seconds for all retries to timeout')
-                time.sleep(95)
-                self._verifyNoNotification(self._server, self._client, 'stats')
-            else:
+            if self._notifResponse == 'ack' or self._notifResponse == None:
+                # normal success cases for confirm, non-confirm
                 time.sleep(4)
                 self._triggerNotification(self._server, self._client, 'stats')
                 self._deregisterObserve(self._client, 'stats')
                 time.sleep(4)
+                self._verifyNoNotification(self._server, self._client, 'stats')
+            else:
+                if self._notifResponse == 'ignore':
+                    delay = 95
+                    print('Pause {0} seconds for all retries to timeout'.format(delay))
+                elif self._notifResponse == 'reset' or self._notifResponse == 'reset_non':
+                    delay = 4
+                else:
+                    # will error because delay undefined
+                    pass
+                time.sleep(delay)
                 self._verifyNoNotification(self._server, self._client, 'stats')
 
         elif testName == 'toomanymemos':
@@ -264,7 +277,14 @@ class ObserveTester(object):
         '''Releases resources
         '''
         if self._server:
-            self._server.close()
+            print('Force close gcoap CLI server...')
+            for i in range(5):
+                if self._server.isalive():
+                    time.sleep(i)
+                    self._server.kill(signal.SIGKILL)
+            if self._server.isalive():
+                print('Could not force close gcoap CLI server')
+
         if self._client:
             self._client.close()
         if self._supportServer:
@@ -283,13 +303,21 @@ class ObserveTester(object):
         :param expectsRejection: boolean If true, we expect the client Observe
                                  registration will fail
         '''
-        if self._conAction == 'ignore':
-            cmd = '{0}/coap-client -N -m post -U -T 5a coap://[::1]:{1}/notif/ignore_con'
+        commandClient = None
+        if self._notifResponse == 'ignore' or self._notifResponse == 'reset':
+            responseCmd = '{0}/coap-client -N -m post -U -T 5a coap://[::1]:{1}/notif/con_{2}'
+            commandClient = pexpect.spawn(responseCmd.format(self._supportDir, commandPort,
+                                                             self._notifResponse))
+            print_text = 'con_{0}'.format(self._notifResponse)
+        elif self._notifResponse == 'reset_non':
+            responseCmd = '{0}/coap-client -N -m post -U -T 5a coap://[::1]:{1}/notif/non_reset'
+            commandClient = pexpect.spawn(responseCmd.format(self._supportDir, commandPort))
+            print_text = 'non_reset'
 
-            commandClient = pexpect.spawn(cmd.format(self._supportDir, commandPort))
+        if commandClient:
             commandClient.expect('v:1 t:NON c:POST')
             commandClient.close()
-            print('Command client sent /notif/ignore_con command to client')
+            print('Command client sent /notif/{0} command to client'.format(print_text))
             time.sleep(1)
 
         regCmd       = '{0}/coap-client -N -m post -U -T 5a coap://[::1]:{1}/reg/{2}'
@@ -321,7 +349,7 @@ class ObserveTester(object):
         client.expect('2\.05; Observe len: 0;')
         print('Client deregistered from {0}; no Observe value, as expected'.format(resource))
 
-    def _configNotification(self, server):
+    def _configConNotification(self, server):
         server.sendline('coap config obs.msg_type CON')
         server.expect('Observe notifications now sent CON\r\n')
 
@@ -350,7 +378,7 @@ if __name__ == "__main__":
     # read command line
     parser = OptionParser()
     parser.add_option('-a', type='string', dest='addr')
-    parser.add_option('-c', type='string', dest='conAction', default=None)
+    parser.add_option('-r', type='string', dest='notifResponse', default=None)
     parser.add_option('-t', type='string', dest='testName')
     parser.add_option('-x', type='string', dest='serverDir', default=None)
     parser.add_option('-y', type='string', dest='clientDir', default=None)
@@ -361,7 +389,10 @@ if __name__ == "__main__":
     tester = None
     try:
         tester = ObserveTester(options.addr, options.serverDir, options.clientDir,
-                               options.supportDir, options.conAction)
+                               options.supportDir, options.notifResponse)
+        # pause here so tester is instantiated in case must close abruply
+        print('Pause 20 seconds to seed Observe value\n')
+        time.sleep(20)
         tester.runTest(options.testName)
     finally:
         if tester:

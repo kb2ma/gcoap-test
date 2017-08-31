@@ -137,13 +137,7 @@ def runRepeatGet(child, addr, serverDelay, repeatCount, confirmable):
     child.expect('open requests.*\n')
     print(child.after)
     # Must force here
-    print('Killing gcoap app...')
-    for i in range(5):
-        if child.isalive():
-            time.sleep(i)
-            child.kill(signal.SIGKILL)
-    if child.isalive():
-        print('Could not kill gcoap app')
+    forceClose(child)
 
 def runConRetries(child, addr, retryCount):
     '''Sends a confirmable request after configuring the server for the count
@@ -177,13 +171,7 @@ def runConRetries(child, addr, retryCount):
     child.expect('open requests.*\n')
     print(child.after)
     # Must force here
-    print('Killing gcoap app...')
-    for i in range(5):
-        if child.isalive():
-            time.sleep(i)
-            child.kill(signal.SIGKILL)
-    if child.isalive():
-        print('Could not kill gcoap app')
+    forceClose(child)
 
 def runToobig(child, addr):
     print('Test: GET /toobig')
@@ -238,6 +226,15 @@ def runCmdargs(child, addr):
 
     print('Success')
     child.close()
+
+def forceClose(child):
+    print('Force close gcoap app...')
+    for i in range(5):
+        if child.isalive():
+            time.sleep(i)
+            child.kill(signal.SIGKILL)
+    if child.isalive():
+        print('Could not force close gcoap app')
 
 if __name__ == "__main__":
     from optparse import OptionParser
