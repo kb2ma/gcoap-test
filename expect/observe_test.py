@@ -140,8 +140,10 @@ class ObserveTester(object):
         else:
             self._server.sendline('ifconfig 8 add unicast {0}/64'.format(addr))
             self._server.expect('success:')
-            self._server.sendline('ncache add 8 {0}'.format(self._supportServerAddr))
-            self._server.expect('success:')
+            self._server.sendline('nib neigh add 8 {0}'.format(self._supportServerAddr))
+            time.sleep(1)
+            self._server.sendline('nib neigh')
+            self._server.expect(self._supportServerAddr)
         time.sleep(2)
         print('gcoap Server setup OK')
 

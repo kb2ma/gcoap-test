@@ -233,7 +233,8 @@ if __name__ == '__main__':
 
     (options, args) = parser.parse_args()
     
-    reader = None
+    reader   = None
+    observer = None
     try:
         observer = GcoapObserver(options.hostAddr, options.hostPort, options.sourcePort)
         print('Starting gcoap observer')

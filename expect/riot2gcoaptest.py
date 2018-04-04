@@ -91,8 +91,10 @@ def main(addr, testName, serverDelay, repeatCount, confirmable):
         time.sleep(1)
         child.sendline('ifconfig 8 add unicast bbbb::2/64')
         child.expect('success:')
-        child.sendline('ncache add 8 bbbb::1')
-        child.expect('success:')
+        child.sendline('nib neigh add 8 bbbb::1')
+        time.sleep(1)
+        child.sendline('nib neigh')
+        child.expect('bbbb::1')
 
     if testName == 'repeat-get':
         runRepeatGet(child, addr, serverDelay, repeatCount, confirmable)
