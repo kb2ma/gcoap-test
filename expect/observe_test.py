@@ -34,6 +34,8 @@ Options:
                 toomanymemos -- Try to register for too many resources
                 toomany4resource -- Try to register more than one observer for
                                     a resource
+                change-token -- Re-register an observer for a resource with a
+                                new token
                 two-observers -- Register two observers, each for a different
                                  resource
                 reg-cleanup -- Ensures registrations are deleted properly
@@ -216,6 +218,10 @@ class ObserveTester(object):
             finally:
                 if client2:
                     client2.close()
+
+        elif testName == 'change-token':
+            self._registerObserve(self._client, 'stats')
+            self._registerObserve(self._client, 'stats')
 
         elif testName == 'two-observers':
             self._registerObserve(self._client, 'stats')
