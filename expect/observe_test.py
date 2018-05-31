@@ -222,6 +222,7 @@ class ObserveTester(object):
         elif testName == 'change-token':
             self._registerObserve(self._client, 'stats')
             self._registerObserve(self._client, 'stats')
+            self._triggerNotification(self._server, self._client, 'stats')
 
         elif testName == 'two-observers':
             self._registerObserve(self._client, 'stats')
