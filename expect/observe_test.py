@@ -34,8 +34,18 @@ Options:
                 toomanymemos -- Try to register for too many resources
                 toomany4resource -- Try to register more than one observer for
                                     a resource
-                change-token -- Re-register an observer for a resource with a
-                                new token
+                rereg-same-token -- Re-register an observer for a resource with
+                                    the same token
+                rereg-new-token -- Re-register an observer for a resource with
+                                    a different token
+                rereg-new-resource -- Change the resource registered for a
+                                      token, and send a notification.
+                rereg-reject-resource-used -- Don't allow changing the resource
+                                    for a registration if the new resource
+                                    already is registered by a different observer.
+                rereg-reject-dup-token -- Don't allow changing the token for a
+                                    registration if the token already is used
+                                    for a different resource.
                 two-observers -- Register two observers, each for a different
                                  resource
                 reg-cleanup -- Ensures registrations are deleted properly
@@ -219,9 +229,35 @@ class ObserveTester(object):
                 if client2:
                     client2.close()
 
-        elif testName == 'change-token':
+        elif testName == 'rereg-same-token':
+            self._registerObserve(self._client, 'stats', token='6b7c')
+            self._registerObserve(self._client, 'stats', token='6b7c')
+            time.sleep(4)
+            self._triggerNotification(self._server, self._client, 'stats')
+
+        elif testName == 'rereg-new-token':
             self._registerObserve(self._client, 'stats')
             self._registerObserve(self._client, 'stats')
+            time.sleep(4)
+            self._triggerNotification(self._server, self._client, 'stats')
+
+        elif testName == 'rereg-new-resource':
+            self._registerObserve(self._client, 'stats', token='6b7c')
+            self._registerObserve(self._client, 'core', token='6b7c')
+            time.sleep(4)
+            self._verifyNoNotification(self._server, self._client, 'stats')
+            time.sleep(4)
+            self._registerObserve(self._client, 'stats', token='6b7c')
+            time.sleep(4)
+            self._triggerNotification(self._server, self._client, 'stats')
+
+        elif testName == 'rereg-reject-dup-token':
+            self._registerObserve(self._client, 'stats', token='5a6b')
+            self._registerObserve(self._client, 'core', token='6b7c')
+            self._registerObserve(self._client, 'stats', token='6b7c',
+                                  expectsRejection=True)
+            time.sleep(4)
+            # original registration should still work
             self._triggerNotification(self._server, self._client, 'stats')
 
         elif testName == 'two-observers':
@@ -241,6 +277,31 @@ class ObserveTester(object):
             finally:
                 if client2:
                     client2.close()
+
+        elif testName == 'rereg-reject-resource-used':
+            self._registerObserve(self._client, 'stats', token='5a6b')
+
+            try:
+                client2 = pexpect.spawn(self._clientCmd.format(5686,
+                                        self._serverQualifiedAddr),
+                                        cwd=self._clientDir,
+                                        env={'PYTHONPATH': '../../soscoap/repo'})
+                client2.expect('Starting gcoap observer')
+                time.sleep(1)
+                print('Client 2 setup OK')
+
+                self._registerObserve(client2, 'core', commandPort=5687,
+                                      token='6b7c', expectsRejection=False)
+
+                time.sleep(2)
+                self._registerObserve(self._client, 'core', token='5a6b',
+                                      expectsRejection=True)
+            finally:
+                if client2:
+                    client2.close()
+
+            # original registration should still work
+            self._triggerNotification(self._server, self._client, 'stats')
 
         elif testName == 'reg-cleanup':
             self._registerObserve(self._client, 'stats')
@@ -302,13 +363,16 @@ class ObserveTester(object):
         
 
     def _registerObserve(self, client, resource, commandPort=5685,
-                                          expectsRejection=False):
+                         token=None, expectsRejection=False):
         '''Registers for Observe notifications for a resource.
 
         :param client: spawn Pexpect process for observer Python client
         :param resource: string Name of the resource on the gcoap server to observe
         :param commandPort: int Port on which client listens for commands from
                             command client
+        :param token: string Token to use for registration; must be even-numbered
+                             length, where each pair of characters represents a
+                             byte, like '5a' or '05e7'
         :param expectsRejection: boolean If true, we expect the client Observe
                                  registration will fail
         '''
@@ -329,9 +393,10 @@ class ObserveTester(object):
             print('Command client sent /notif/{0} command to client'.format(print_text))
             time.sleep(1)
 
-        regCmd       = '{0}/coap-client -N -m post -U -T 5a coap://[::1]:{1}/reg/{2}'
-        commandClient = pexpect.spawn(regCmd.format(self._supportDir, commandPort,
-                                                                      resource))
+        tokenOpt = '-O 15,{0}'.format(token) if token else ''
+        regCmd       = '{0}/coap-client -N -m post -U -T 5a {1} coap://[::1]:{2}/reg/{3}'
+        commandClient = pexpect.spawn(regCmd.format(self._supportDir, tokenOpt,
+                                                    commandPort, resource))
         commandClient.expect('v:1 t:NON c:POST')
         commandClient.close()
         print('Command client sent /reg command to client')
@@ -363,6 +428,7 @@ class ObserveTester(object):
         server.expect('Observe notifications now sent CON\r\n')
 
     def _triggerNotification(self, server, client, resource):
+        '''Only works for stats resource'''
         server.sendline('coap get {0} 5683 /time'.format(self._supportServerAddr))
         # Expects month day time
         server.expect('\w+ \d+ \d+:\d+:\d+\r\n')
@@ -378,8 +444,19 @@ class ObserveTester(object):
         server.sendline('coap get {0} 5683 /time'.format(self._supportServerAddr))
         server.expect('\w+ \d+ \d+:\d+:\d+\r\n')
 
-        client.expect(pexpect.TIMEOUT, timeout=2)
-        print('Client did not receive {0} notification, as expected'.format(resource))
+        # Send ping post to client so we may examine the output for anything
+        # unexpected.
+        commandPort   = 5685
+        pingCmd       = '{0}/coap-client -N -m post -U -T 5a coap://[::1]:{1}/ping'
+        commandClient = pexpect.spawn(pingCmd.format(self._supportDir, commandPort))
+        commandClient.expect('v:1 t:NON c:POST')
+        commandClient.close()
+
+        client.expect('Got ping post', timeout=2)
+        if re.search('Observe', client.before):
+            print('*** FAIL ***\nReceived observe: {0}'.format(client.before))
+        else:
+            print('Client did not receive {0} notification, as expected'.format(resource))
 
 if __name__ == "__main__":
     from optparse import OptionParser

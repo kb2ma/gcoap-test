@@ -86,6 +86,8 @@ class GcoapObserver(object):
     def _responseClient(self, message):
         '''Reads a response to a request
         '''
+        log.debug('Running client response handler')
+        
         prefix   = '0' if message.codeDetail < 10 else ''
         obsList  = message.findOption(OptionType.Observe)
         obsValue = '<none>' if len(obsList) == 0 else obsList[0].value
@@ -139,16 +141,27 @@ class GcoapObserver(object):
             self._notificationAction = 'reset'
         elif resource.path == '/notif/non_reset':
             self._notificationAction = 'reset_non'
+        elif resource.path == '/ping':
+            print('Got ping post')
 
         if observePath:
-            self._query(observeAction, observePath)
+            if observeAction == 'reg' and resource.pathQuery:
+                self._query(observeAction, observePath, tokenText=resource.pathQuery)
+            else:
+                self._query(observeAction, observePath)
 
-    def _query(self, observeAction, observePath):
-        '''Runs the reader's query
+    def _query(self, observeAction, observePath, tokenText=None):
+        '''Runs the reader's query.
+
+        Uses a randomly generated two byte token, or the provided string encoded
+        bytes.
 
         :param observeAction: string -- reg (register), dereg (deregister);
                               triggers inclusion of Observe option
         :param observePath: string Path for register/deregister
+        :param tokenText: string String encoding of token bytes; must by an
+                                 even-numbered length of characters like '05'
+                                 or '05a6'
         '''
         # create message
         msg             = CoapMessage(self._hostTuple)
@@ -170,10 +183,16 @@ class GcoapObserver(object):
         if observeAction == 'reg':
             # register
             msg.addOption( CoapOption(OptionType.Observe, 0) )
-            msg.tokenLength = 2
-            msg.token       = bytearray(2)
-            msg.token[0]    = random.randint(0, 255)
-            msg.token[1]    = random.randint(0, 255)
+            if tokenText:
+                msg.tokenLength = len(tokenText) / 2
+                msg.token       = bytearray(msg.tokenLength)
+                for i in range(0, msg.tokenLength):
+                    msg.token[i] = int(tokenText[2*i:2*(i+1)], base=16)
+            else:
+                msg.tokenLength = 2
+                msg.token       = bytearray(2)
+                msg.token[0] = random.randint(0, 255)
+                msg.token[1] = random.randint(0, 255)
             self._registeredPaths[observePath] = msg.token
         elif observeAction == 'dereg':
             # deregister
