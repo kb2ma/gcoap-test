@@ -30,6 +30,9 @@ Options:
                            been reached. If confirmable,  the limit is the
                            number of open confirmable requests.
                 cmdargs -- Tries various arguments for the command line
+                nohandler -- No response handler defined. Must use riot-gcoap-test
+                             app, and turn off the response handler. Must compile
+                             gcoap.c with DEBUG enabled.
 -x <dir>   -- Directory in which to execute the script; must be location of
               RIOT gcoap example app.
 
@@ -78,7 +81,8 @@ def main(addr, testName, serverDelay, repeatCount, confirmable):
 
     if xfaceType == 'tap':
         child = pexpect.spawn('make term')
-        child.expect('gcoap example app')
+        # accepts either gcoap example app or riot-gcoap-test app
+        child.expect('gcoap .* app')
     else:
         child = pexpect.spawn('make term BOARD="samr21-xpro"')
         child.expect('Welcome to pyterm!')
@@ -109,6 +113,8 @@ def main(addr, testName, serverDelay, repeatCount, confirmable):
             runToomany(child, addr)
     elif testName == 'cmdargs':
         runCmdargs(child, addr)
+    elif testName == 'nohandler':
+        runNoHandler(child, addr)
     else:
         print('Unexpected test name: {0}'.format(testName))
 
@@ -228,6 +234,14 @@ def runCmdargs(child, addr):
 
     print('Success')
     child.close()
+
+def runNoHandler(child, addr):
+    child.sendline('coap config resp.handler 0'.format(addr))
+    child.expect('Response handler disabled')
+
+    child.sendline('coap get {0} 5683 /ver'.format(addr))
+    child.expect('msg not found', timeout=5)
+    print('Success: {0}'.format(child.after))
 
 def forceClose(child):
     print('Force close gcoap app...')
